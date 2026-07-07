@@ -1,0 +1,31 @@
+{
+  "tasks": [
+    {
+      "id": "goal-implementation",
+      "title": "Complete requested embedded firmware goal",
+      "kind": "code",
+      "objective": "完成C:\\Users\\123\\Desktop\\neizu\\tasknew里面的任务要求",
+      "dependencies": [],
+      "target_files": [
+        "main"
+      ],
+      "acceptance": [
+        {
+          "kind": "build",
+          "command": "cmake --build build",
+          "expected": null
+        },
+        {
+          "kind": "flash",
+          "command": "pyocd flash -t stm32f103c8 build/firmware.elf",
+          "expected": null
+        },
+        {
+          "kind": "serial",
+          "command": null,
+          "expected": null
+        }
+      ]
+    }
+  ]
+}

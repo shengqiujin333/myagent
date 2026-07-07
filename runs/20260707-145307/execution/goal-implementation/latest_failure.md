@@ -1,0 +1,1 @@
+stopped after 10 attempts: build failed

@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+TaskKind = Literal["code", "doc", "test", "analysis", "config"]
+CheckKind = Literal["build", "flash", "serial", "host_test", "inspect", "file"]
+
+BLOCKED_PLAN_WORDS = (
+    "split",
+    "decompose",
+    "subtask",
+    "sub-task",
+    "break down",
+    "research later",
+    "design later",
+    "tbd",
+    "todo",
+    "later",
+    "\u518d\u5206",
+    "\u62c6\u5206",
+    "\u5b50\u4efb\u52a1",
+    "\u5f85\u5b9a",
+)
+
+
+class AcceptanceCheck(BaseModel):
+    kind: CheckKind
+    command: str | None = None
+    expected: str | None = None
+
+
+class PlanTask(BaseModel):
+    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+    title: str
+    kind: TaskKind
+    objective: str
+    dependencies: list[str] = Field(default_factory=list)
+    target_files: list[str] = Field(default_factory=list)
+    acceptance: list[AcceptanceCheck]
+
+    @field_validator("title", "objective")
+    @classmethod
+    def reject_decomposable_wording(cls, value: str) -> str:
+        lowered = value.lower()
+        if any(word in lowered for word in BLOCKED_PLAN_WORDS):
+            raise ValueError("plan task must be directly completable and cannot require more subtasks")
+        return value
+
+    @model_validator(mode="after")
+    def validate_code_acceptance(self) -> "PlanTask":
+        if self.kind != "code":
+            return self
+        kinds = {check.kind for check in self.acceptance}
+        has_observation = bool({"serial", "host_test"} & kinds)
+        if not {"build", "flash"}.issubset(kinds) or not has_observation:
+            raise ValueError("code task acceptance must include build, flash, and observation")
+        return self
+
+
+class PlanDocument(BaseModel):
+    tasks: list[PlanTask]
+
+    @model_validator(mode="after")
+    def validate_dependencies(self) -> "PlanDocument":
+        ids = {task.id for task in self.tasks}
+        unknown: dict[str, list[str]] = {}
+        for task in self.tasks:
+            missing = [dep for dep in task.dependencies if dep not in ids]
+            if missing:
+                unknown[task.id] = missing
+        if unknown:
+            raise ValueError(f"unknown dependencies: {unknown}")
+        return self
+
+    def ready_task_ids(self, completed: set[str]) -> list[str]:
+        return [
+            task.id
+            for task in self.tasks
+            if task.id not in completed and set(task.dependencies).issubset(completed)
+        ]
+
+    def get_task(self, task_id: str) -> PlanTask:
+        for task in self.tasks:
+            if task.id == task_id:
+                return task
+        raise KeyError(task_id)
+
+
+class AgentState(BaseModel):
+    project_root: Path
+    run_dir: Path
+    goal: str
+    llm: dict[str, object] = Field(default_factory=dict)
+    hardware: dict[str, object] = Field(default_factory=dict)
+    current_state: str = "build_context"
+    context_md: str = ""
+    context_file: Path | None = None
+    context_files: list[Path] = Field(default_factory=list)
+    thinkingmap_files: list[Path] = Field(default_factory=list)
+    plan_file: Path | None = None
+    slice_files: dict[str, Path] = Field(default_factory=dict)
+    completed_task_ids: set[str] = Field(default_factory=set)
+    failed_task_id: str | None = None
+    compact_messages: list[str] = Field(default_factory=list)
+
+    def add_compact_message(self, message: str) -> None:
+        if len(message) > 500:
+            message = message[:497] + "..."
+        self.compact_messages.append(message)

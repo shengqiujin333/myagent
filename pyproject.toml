@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "embedded-langgraph-agent"
+version = "0.1.0"
+description = "LangGraph embedded coding agent with real hardware verification"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=0.2.0",
+  "langchain-openai>=0.1.0",
+  "pydantic>=2.0",
+  "pyserial>=3.5",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+embedded-agent = "embedded_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+embedded_agent = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
