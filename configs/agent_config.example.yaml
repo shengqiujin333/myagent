@@ -2,6 +2,7 @@ project_root: "C:/path/to/firmware"
 run_root: "runs"
 entrypoint: "main"
 context_file_limit: 200
+max_task_attempts: 3
 verification_env_file: "configs/verification_env.example.yaml"
 llm:
   provider: "deepseek"

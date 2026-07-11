@@ -1,0 +1,232 @@
+{
+  "architecture_strategy": "系统采用分层架构：底层为HAL驱动与MCU外设抽象层（时钟、GPIO、UART、TIM、ADC、DMA），中间层为功能模块层（PWM生成、同步ADC采集、内阻计算、DS18B20温度、UART协议栈、异常检测），顶层为状态机调度层（基于1ms SysTick的非阻塞调度器，管理1分钟内阻测量、30秒温度读取、主从角色切换）。核心交互接口包括：PWM定时器TRGO触发ADC注入采样，ADC完成中断通过DMA传输数据至环形缓冲区，内阻计算模块读取缓冲区并执行同步解调，UART协议栈采用帧头+长度+CRC的简单可靠协议。设计文档划分为：系统架构设计、通讯协议规范、内阻测量算法数学推导、HIL测试大纲。",
+  "critical_path_and_dependency": {
+    "description": "关键路径：T-0.1（设计文档）→ T-1.1（MVP基线）→ T-2.1（PWM定时器）→ T-2.2（ADC同步采集）→ T-2.3（内阻计算与校准）→ T-2.7（异常检测）→ T-2.8（状态机集成）。并行分支：T-2.4（DS18B20）、T-2.5（UART1主机）、T-2.6（UART2从机）可在T-1.1后与T-2.1并行开发，但需注意UART协议依赖设计文档中的协议定义。",
+    "mermaid_graph": "graph TD\n    T0_1(0.1 系统设计文档)\n    T1_1(1.1 MVP基线)\n    T2_1(2.1 PWM定时器)\n    T2_2(2.2 ADC同步采集)\n    T2_3(2.3 内阻计算校准)\n    T2_4(2.4 DS18B20温度)\n    T2_5(2.5 UART1主机协议)\n    T2_6(2.6 UART2从机协议)\n    T2_7(2.7 异常数据识别)\n    T2_8(2.8 状态机集成)\n    T0_1 --> T1_1\n    T1_1 --> T2_1\n    T1_1 --> T2_4\n    T1_1 --> T2_5\n    T1_1 --> T2_6\n    T2_1 --> T2_2\n    T2_2 --> T2_3\n    T2_3 --> T2_7\n    T2_7 --> T2_8\n    T2_4 --> T2_8\n    T2_5 --> T2_8\n    T2_6 --> T2_8\n    style T0_1 fill:#f9f,stroke:#333,stroke-width:2px\n    style T1_1 fill:#bbf,stroke:#333,stroke-width:2px"
+  },
+  "wbs_tasks": [
+    {
+      "task_id": "T-0.1",
+      "phase": "阶段零：系统总体设计与文档输出 (Design First)",
+      "description": "编写系统总体架构设计文档，包含：软硬件模块划分及接口定义（PWM-ADC触发链、DMA缓冲区、状态机调度）、自定义级联通讯协议规范（帧格式、地址分配、轮询流程、CRC）、内阻测量算法数学模型（基于同步检波的幅值提取、相位差校正多项式、多点最小二乘校准）、异常数据识别策略（滑动窗口标准差+差分阈值）、HIL测试计划（硬件回环连接、上位机脚本框架）。",
+      "dependencies": [],
+      "core_inputs": [
+        "项目原始需求 (Build Context)",
+        "硬件原理图/网表",
+        "STM32G030F6P6数据手册 (DS12991)"
+      ],
+      "acceptance_criteria": "输出《系统架构设计V1.0》《通讯协议规范V1.0》《内阻测量算法说明V1.0》《HIL测试大纲V1.0》四份文档，通过团队评审，所有代码实现必须严格遵循文档定义。",
+      "domain_tags": [
+        "系统架构设计",
+        "接口契约定义",
+        "技术文档编写",
+        "嵌入式算法设计"
+      ],
+      "hil_verification_requirement": "无（纯文档阶段）。提供上位机测试脚本接口伪代码及HIL接线图。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-1.1",
+      "phase": "阶段一：最小可编译基线 (MVP Baseline)",
+      "description": "搭建Keil工程，创建缺失的main.c和stm32g0xx_hal_msp.c。配置系统时钟（HSE 8MHz PLL 64MHz）、SysTick 1ms中断、GPIO初始化（M_S引脚PA5输入，DQ引脚PA4开漏输出，UART1/UART2 TX/RX引脚复用）、UART2轮询初始化（115200, 8N1）用于调试打印。实现非阻塞的printf重定向到UART2。验证编译0 Error 0 Warning，烧录后串口输出'System Boot OK'。",
+      "dependencies": [
+        "T-0.1"
+      ],
+      "core_inputs": [
+        "T-0.1架构设计文档",
+        "芯片数据手册",
+        "链接脚本(battery_re.sct)",
+        "现有工程文件 (startup, system_stm32g0xx, stm32g0xx_it)"
+      ],
+      "acceptance_criteria": "Keil编译无错误无警告；烧录后使用串口终端（115200）能接收'System Boot OK'字符串；M_S引脚电平可通过万用表或GPIO读回验证（高=主机，低=从机）。",
+      "domain_tags": [
+        "Cortex-M0+启动流程",
+        "时钟树(RCC)配置",
+        "UART驱动",
+        "Keil工程管理"
+      ],
+      "hil_verification_requirement": "使用Config中的串口调试工具（如SecureCRT或Python pyserial）连接UART2（PA2/PA3），上电后捕获启动日志。编写Python脚本自动检测'System Boot OK'并断言通过。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.1",
+      "phase": "阶段二：增量功能模块 – PWM生成 (Incremental Features)",
+      "description": "配置TIM3_CH3 (PB0) 输出1kHz 50%占空比方波。设置TIM3预分频器产生64MHz计数，ARR=64000-1，CCR=32000，输出极性高有效。验证示波器测量频率和占空比。",
+      "dependencies": [
+        "T-1.1"
+      ],
+      "core_inputs": [
+        "T-0.1设计文档中PWM定时器配置参数",
+        "STM32G030 TIM3数据手册章节"
+      ],
+      "acceptance_criteria": "PB0引脚输出1kHz ±0.1%方波，占空比50% ±0.5%，连接RC滤波后观察到近似正弦波。",
+      "domain_tags": [
+        "定时器PWM输出",
+        "GPIO复用配置",
+        "信号发生器设计"
+      ],
+      "hil_verification_requirement": "使用数字示波器（或逻辑分析仪）捕获PB0波形，测量频率和占空比。编写Python脚本通过连接的DSO（如通过PyVISA）自动化测量并断言。若无示波器，可通过ADC采样回传UART计算频率（近似）。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.2",
+      "phase": "阶段二：增量功能模块 – ADC同步采集 (Incremental Features)",
+      "description": "配置ADC1：通道1（VOLT_ADC, PA1）、通道6（CURRENT_ADC, PA6）、通道7（RES_ADC, PA7）。启用连续转换模式或定时器触发模式。使用TIM3的TRGO事件作为触发源（每次更新事件触发ADC转换），实现与PWM相位同步。配置DMA（通道1）将ADC结果传输至内存环形缓冲区（每个通道3个样本深度防溢出）。ADC时钟源自PLL，采样率约10kHz（通过TIM3更新率1kHz，每次触发转换一组序列，序列包含3个通道，故每个通道采样率1kHz，不符合10kHz需求。需重新设计：改为TIM1产生10kHz触发，但需与PWM相位对齐？需求为10kHz ADC采集且与电流相位同步。可在设计文档中明确使用TIM1为主定时器，频率10kHz，TIM3从模式产生PWM且触发ADC相位对齐。因此任务描述需调整：配置TIM1输出10kHz触发信号（不输出），TIM3配置为从模式，使用ITR1同步，生成1kHz PWM。ADC由TIM1触发。具体同步方案需遵循T-0.1设计。此任务包含ADC初始化、DMA配置、缓冲管理。",
+      "dependencies": [
+        "T-1.1",
+        "T-2.1"
+      ],
+      "core_inputs": [
+        "T-0.1同步触发方案设计",
+        "STM32G030 ADC/DMA/TIM数据手册"
+      ],
+      "acceptance_criteria": "ADC以10kHz频率采集三个通道，DMA无溢出，通过串口读取缓冲区内容验证数据连续性（例如注入1V直流，ADC读数稳定±2LSB）。电流采样通道（PA6）在注入正弦波时能正确捕获波形。",
+      "domain_tags": [
+        "ADC配置及校准",
+        "DMA传输",
+        "定时器同步与触发",
+        "信号采集与缓冲"
+      ],
+      "hil_verification_requirement": "利用Config中的Python脚本，通过UART2发送命令触发单次回传ADC缓冲区数据。从上位机注入已知直流电压至ADC引脚（通过可调电源），验证读数精度。使用信号发生器注入1kHz正弦波至CURRENT_ADC（PA6）并检查ADC采样序列是否匹配。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.3",
+      "phase": "阶段二：增量功能模块 – 内阻计算与校准 (Incremental Features)",
+      "description": "基于ADC缓冲区数据实现内阻测量算法：对同步采集的电压（RES_ADC）和电流（CURRENT_ADC）做DFT或互相关提取1kHz分量幅度，利用已知采样电阻R16(0.1Ω)计算电流实际值，计算内阻R = V_battery / I_inject。实现相位差校正（通过软件移相或相位查找表）。实现多点电阻校准（使用多个精密电阻替代电池进行标定，存储校准系数到Flash）。要求计算在1ms内完成（非阻塞，状态机分步）。",
+      "dependencies": [
+        "T-2.2"
+      ],
+      "core_inputs": [
+        "T-0.1内阻算法数学模型",
+        "ADC采集的电压电流样本",
+        "校准电阻BOM值（如1Ω, 10Ω, 100Ω）"
+      ],
+      "acceptance_criteria": "接入已知电阻（如10Ω ±0.1%），测量值与真实值误差<1%（校准后）。相位校正后，在不同温度下误差稳定。校准系数正确存储并能恢复。",
+      "domain_tags": [
+        "数字信号处理 (DFT/Goertzel)",
+        "最小二乘校准",
+        "定点运算优化",
+        "嵌入式算法实现"
+      ],
+      "hil_verification_requirement": "HIL测试：使用精密电阻箱代替电池，通过上位机脚本自动切换多个阻值，读取下位机回传的内阻值，计算误差并生成校准曲线。使用Config中的Python脚本自动化测试流程，验证校准系数收敛。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.4",
+      "phase": "阶段二：增量功能模块 – DS18B20温度测量 (Incremental Features)",
+      "description": "实现DS18B20单总线驱动：ROM搜索、温度转换触发（12位分辨率）、读取温度值。使用PA4作为DQ引脚，配置为开漏输出，外部4.7kΩ上拉。利用1ms定时器实现精确时延。软件状态机避免阻塞（等待转换期间可让出CPU）。每30秒触发一次温度测量。",
+      "dependencies": [
+        "T-1.1"
+      ],
+      "core_inputs": [
+        "DS18B20数据手册",
+        "T-0.1中温度采集时序要求"
+      ],
+      "acceptance_criteria": "正确识别单总线上DS18B20；读取温度值与水银温度计比对误差≤±0.5°C；无阻塞等待，测量周期精确30秒。",
+      "domain_tags": [
+        "单总线协议",
+        "时序精确编程",
+        "非阻塞驱动设计"
+      ],
+      "hil_verification_requirement": "使用上位机Python脚本，通过UART2实时读取温度值，与外部温度计数据比对。可置于恒温箱中测试多个温度点。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.5",
+      "phase": "阶段二：增量功能模块 – UART1主机协议 (Incremental Features)",
+      "description": "实现基于UART1（PB6/PB7）的主机级联协议：广播地址分配（从机地址1~15），轮询指定从机数据（内阻、电压、电流、温度），接收并解析响应帧。协议遵循T-0.1设计（帧头0x55, 0xAA, 长度, 地址, 命令, 数据, CRC16）。使用UART中断+DMA接收，环形缓冲区，非阻塞发送。主机角色由M_S引脚电平决定（T-0.1已定义），此任务仅实现主机端逻辑。",
+      "dependencies": [
+        "T-1.1",
+        "T-0.1"
+      ],
+      "core_inputs": [
+        "T-0.1通讯协议规范",
+        "UART1硬件连接（隔离器CA-IS3721LS）"
+      ],
+      "acceptance_criteria": "主机能成功枚举下级从机（响应超时处理），正确读取从机寄存器；误码率测试：连续发送1000帧，CRC校验全部通过。",
+      "domain_tags": [
+        "UART中断+DMA",
+        "自定义协议栈",
+        "CRC16算法",
+        "超时与重试机制"
+      ],
+      "hil_verification_requirement": "HIL测试：使用一块开发板模拟从机（运行从机固件），通过USB转串口连接至PC，上位机Python脚本监测双方交互。自动发送命令并验证响应数据一致性。使用噪声注入（如串口干扰器）测试协议鲁棒性。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.6",
+      "phase": "阶段二：增量功能模块 – UART2从机协议 (Incremental Features)",
+      "description": "实现基于UART2（PA2/PA3）的从机协议：接收上级主机的广播地址分配、数据轮询命令，打包本机数据（内阻、电压、电流、温度）并按协议发送响应。中断接收，非阻塞发送。从机地址存储在Flash中（初次为0，等待主机分配）。",
+      "dependencies": [
+        "T-1.1",
+        "T-0.1"
+      ],
+      "core_inputs": [
+        "T-0.1通讯协议规范",
+        "UART2硬件连接（10Ω串联电阻）"
+      ],
+      "acceptance_criteria": "从机能响应主机地址分配命令，正确回传本机数据；多帧连续测试无丢包。",
+      "domain_tags": [
+        "UART中断驱动",
+        "协议解析与组帧",
+        "Flash地址存储"
+      ],
+      "hil_verification_requirement": "使用PC串口模拟主机，通过UART2发送命令帧，Python脚本验证响应帧格式和CRC。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.7",
+      "phase": "阶段二：增量功能模块 – 异常数据识别 (Incremental Features)",
+      "description": "实现异常数据识别算法：基于历史内阻和电压数据（保存最近10个样本），计算滑动窗口标准差和变化率。若数据超出均值±3σ或变化率超过阈值（如5%/s），则标记为异常并丢弃（不更新输出），但保留用于后续校准。抗充放电干扰：区分快速变化（充放电脉冲）与真实内阻突变。算法通过状态机实现，不阻塞。",
+      "dependencies": [
+        "T-2.3"
+      ],
+      "core_inputs": [
+        "T-0.1异常检测策略文档",
+        "实时内阻计算输出"
+      ],
+      "acceptance_criteria": "注入模拟充电脉冲（人为拉高电压1s），输出数据不受影响；连续稳定时，数据平滑输出。异常标记可通过UART上报。",
+      "domain_tags": [
+        "信号处理与滤波",
+        "异常检测算法",
+        "滑动窗口统计"
+      ],
+      "hil_verification_requirement": "HIL测试：使用可编程负载模拟电池充放电脉冲，通过上位机脚本记录下位机输出，验证异常标记正确，且输出数据在干扰期间不变化。自动化测试脚本（Python）判断异常识别率>95%。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.8",
+      "phase": "阶段二：增量功能模块 – 主状态机集成 (Incremental Features)",
+      "description": "集成所有功能模块到非阻塞主状态机调度器：初始化后根据M_S引脚确定角色；主机模式：每1分钟广播读取内阻指令（包含自身测量），然后轮询从机；从机模式：等待主机指令，响应数据。温度测量每30秒触发一次独立于主循环。使用1ms SysTick驱动软件定时器。优化内存使用（8KB RAM，注意堆栈分配）。确保无死锁、无阻塞。",
+      "dependencies": [
+        "T-2.3",
+        "T-2.4",
+        "T-2.5",
+        "T-2.6",
+        "T-2.7"
+      ],
+      "core_inputs": [
+        "所有前期任务交付的模块接口",
+        "T-0.1状态机流程图"
+      ],
+      "acceptance_criteria": "系统持续运行72小时无复位；内阻测量周期误差±1s内；温度测量周期误差±0.5s内；UART通讯无死锁；主从角色切换正确（通过改变M_S电平重启可验证）。",
+      "domain_tags": [
+        "状态机设计",
+        "实时调度",
+        "系统集成",
+        "内存优化"
+      ],
+      "hil_verification_requirement": "HIL测试：使用两块评估板建立主从连接（UART1交叉相连，M_S分别上拉/下拉），上位机通过UART2监控主机输出，自动化脚本长时间运行（72h）并记录日志，检测复位和通讯中断。使用电流钳和电压探头监测实际电池负载下的内阻输出稳定性。",
+      "is_completed": false
+    }
+  ],
+  "cross_module_interfaces_and_risks": [
+    "PWM定时器（TIM3）与ADC触发同步：若使用TIM3 TRGO触发ADC，而TIM3频率为1kHz，则ADC采样率仅1kHz，不满足10kHz需求。需改用TIM1提供10kHz触发，并通过主从模式与TIM3同步。设计阶段必须明确触发链，否则后续集成时序错乱。",
+    "DMA与CPU同时访问SRAM的总线竞争：ADC DMA频繁写入缓冲区，内阻计算模块和UART协议栈也可能访问同一区域，可能造成数据不一致。需使用双缓冲或临界区保护，同时注意Cortex-M0+无总线矩阵仲裁，可能导致DMA延迟。",
+    "UART1与UART2共用中断优先级及嵌套：两者中断可能互相抢占导致数据丢失。需合理分配优先级（UART1从机响应要求高，建议更高优先级），并确保中断服务函数快速执行。",
+    "Flash存储校准系数与地址：校准过程需擦写Flash，可能占用较长CPU时间，导致状态机调度延迟。需将Flash操作放在空闲时刻，或使用备份寄存器替代。",
+    "主从协议字节序与对齐：通讯数据包含多字节数值（如内阻为float或uint16_t），不同编译器或优化选项可能导致字节序不一致。必须在协议中明确小端序列，并测试跨平台兼容性。",
+    "内存不足风险：8KB RAM需同时容纳ADC缓冲区（至少每通道10个样本*2字节=60字节）、UART接收FIFO（256字节）、DS18B20暂存器（9字节）、历史数据滑动窗口（10个样本*4字节=40字节）、协议帧（最大128字节）以及堆栈（Heap 0x200, Stack 0x400）。需仔细计算并可能降低缓冲区深度。"
+  ]
+}

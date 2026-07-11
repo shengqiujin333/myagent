@@ -10,6 +10,8 @@ from embedded_agent.nodes import (
     slice_node,
     subtask_feature_design_node,
     subtask_feature_test_node,
+    task_design_node,
+    task_test_node,
     thinkingmap_node,
 )
 from embedded_agent.human import HumanInterventionRequired, request_human_intervention
@@ -58,6 +60,8 @@ def build_node_map() -> dict:
         "minimum_compilable_baseline": human_guarded_node("minimum_compilable_baseline", minimum_compilable_baseline_node),
         "material_summary": human_guarded_node("material_summary", material_summary_node),
         "execute_tasks": human_guarded_node("execute_tasks", execute_tasks_node),
+        "task_design": human_guarded_node("task_design", task_design_node),
+        "task_test": human_guarded_node("task_test", task_test_node),
     }
 
 
@@ -90,6 +94,14 @@ def _route_after_algorithm_simulation(state: dict) -> str:
     return "design"
 
 
+def _route_after_task_test(state: dict) -> str:
+    if state.get("failed_task_id") or state.get("current_state") == "done":
+        return "done"
+    if state.get("current_state") == "task_design":
+        return "task_design"
+    return "execute_tasks"
+
+
 def build_graph():
     try:
         from langgraph.graph import END, StateGraph
@@ -107,6 +119,8 @@ def build_graph():
     graph.add_node("minimum_compilable_baseline", human_guarded_node("minimum_compilable_baseline", minimum_compilable_baseline_node))
     graph.add_node("material_summary", human_guarded_node("material_summary", material_summary_node))
     graph.add_node("execute_tasks", human_guarded_node("execute_tasks", execute_tasks_node))
+    graph.add_node("task_design", human_guarded_node("task_design", task_design_node))
+    graph.add_node("task_test", human_guarded_node("task_test", task_test_node))
     graph.set_entry_point("build_context")
     graph.add_edge("build_context", "thinkingmap")
     graph.add_edge("thinkingmap", "design")
@@ -124,7 +138,17 @@ def build_graph():
     graph.add_edge("slice", "minimum_compilable_baseline")
     graph.add_edge("minimum_compilable_baseline", "material_summary")
     graph.add_edge("material_summary", "execute_tasks")
-    graph.add_edge("execute_tasks", END)
+    graph.add_conditional_edges(
+        "execute_tasks",
+        lambda state: "done" if state.get("current_state") == "done" else "task_design",
+        {"done": END, "task_design": "task_design"},
+    )
+    graph.add_edge("task_design", "task_test")
+    graph.add_conditional_edges(
+        "task_test",
+        _route_after_task_test,
+        {"task_design": "task_design", "execute_tasks": "execute_tasks", "done": END},
+    )
     try:
         from langgraph.checkpoint.memory import MemorySaver
     except ImportError:

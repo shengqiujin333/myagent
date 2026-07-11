@@ -87,12 +87,29 @@ class AgentState(BaseModel):
     design_md: str = ""
     design_feedback: str = ""
     algorithm_simulation_file: Path | None = None
+    subtask_design_all_file: Path | None = None
+    subtask_manifest_file: Path | None = None
     subtask_feature_design_files: list[Path] = Field(default_factory=list)
+    subtask_feature_test_all_file: Path | None = None
     subtask_feature_test_file: Path | None = None
+    subtask_feature_test_files: list[Path] = Field(default_factory=list)
+    slice_all_file: Path | None = None
     slice_files: dict[str, Path] = Field(default_factory=dict)
     minimum_compilable_baseline_file: Path | None = None
+    material_summary_all_file: Path | None = None
     material_summary_file: Path | None = None
+    material_summary_files: list[Path] = Field(default_factory=list)
+    task_prompt_files: dict[str, Path] = Field(default_factory=dict)
     completed_task_ids: set[str] = Field(default_factory=set)
+    current_task_index: int | None = None
+    current_task_id: str | None = None
+    current_task_folder: Path | None = None
+    current_child_state: str | None = None
+    current_attempt: int = 0
+    max_task_attempts: int = Field(default=3, ge=1)
+    current_design_prompt_file: Path | None = None
+    current_test_prompt_file: Path | None = None
+    latest_test_failure_file: Path | None = None
     failed_task_id: str | None = None
     compact_messages: list[str] = Field(default_factory=list)
 

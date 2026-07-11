@@ -2,6 +2,7 @@ project_root: "C:/Users/123/Desktop/neizu/tasknew"
 run_root: "runs"
 entrypoint: "main"
 context_file_limit: 200
+max_task_attempts: 3
 verification_env_file: "configs/verification_env.myagent.yaml"
 llm:
   provider: "deepseek"

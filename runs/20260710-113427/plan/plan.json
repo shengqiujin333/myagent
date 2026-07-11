@@ -1,0 +1,280 @@
+{
+  "architecture_strategy": "系统采用分层架构：底层为HAL驱动层（ADC、TIM、UART、GPIO、DMA），中间件层封装环形缓冲区、1-Wire驱动、内阻计算与校准引擎，应用层包含主状态机调度、UART级联协议及异常数据过滤。核心交互通过全局结构体与回调函数解耦，所有模块非阻塞运行。设计文档划分为总体架构设计、接口契约定义、算法数学模型及HIL测试大纲四部分，确保设计可追溯。",
+  "critical_path_and_dependency": {
+    "description": "关键路径为：系统设计与验证（T-0.1~T-0.3）→ MVP基线（T-1.1）→ 基础外设驱动（T-2.2）→ 功能模块（T-2.3~T-2.8）→ 集成测试（T-2.9）。其中T-0.3为后续所有任务的详细设计输入，必须最先完成。T-2.2（TIM/ADC）与T-2.1（UART DMA）可并行，但T-2.2需依赖T-1.1确保时钟与SysTick就绪。UART级联协议（T-2.5）依赖T-2.1（UART收发）和T-2.4（主从识别）；内阻算法（T-2.6）依赖T-2.2（ADC采样）和T-2.1（若通过UART回传数据）。集成测试（T-2.9）依赖所有前序任务。",
+    "mermaid_graph": "graph TD\n    T0_1[T-0.1 系统设计] --> T0_2[T-0.2 设计仿真验证]\n    T0_1 --> T0_3[T-0.3 子任务详细设计]\n    T0_2 --> T0_3\n    T0_3 --> T1_1[T-1.1 MVP基线]\n    T1_1 --> T2_1[T-2.1 UART DMA接收]\n    T1_1 --> T2_2[T-2.2 TIM PWM & ADC采样]\n    T2_1 --> T2_5[T-2.5 UART级联协议]\n    T2_2 --> T2_3[T-2.3 DS18B20驱动]\n    T2_2 --> T2_6[T-2.6 内阻测量算法]\n    T2_2 --> T2_7[T-2.7 异常数据过滤]\n    T2_3 --> T2_8[T-2.8 主状态机调度]\n    T2_4[T-2.4 主从识别] --> T2_5\n    T2_4 --> T2_8\n    T2_5 --> T2_8\n    T2_6 --> T2_8\n    T2_7 --> T2_8\n    T2_8 --> T2_9[T-2.9 集成测试与HIL验证]"
+  },
+  "wbs_tasks": [
+    {
+      "task_id": "T-0.1",
+      "phase": "阶段零：系统总体设计与文档输出 (Design First)",
+      "description": "编写系统总体架构设计、软硬件接口定义、核心通讯协议栈规范及控制算法数学模型文档。",
+      "dependencies": [],
+      "core_inputs": [
+        "项目原始需求 (Build Context)",
+        "硬件原理图/芯片手册"
+      ],
+      "acceptance_criteria": "输出结构化的设计文档集，通过架构评审，作为后续所有代码实现的唯一基准。",
+      "domain_tags": [
+        "系统架构设计",
+        "接口契约定义",
+        "技术文档编写"
+      ],
+      "verification_requirement": "无（纯文档阶段）。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-0.2",
+      "phase": "阶段零：设计验证与可行性推演 (Design Verification)",
+      "description": "利用 Python 脚本对设计文档中的关键算法（如内阻计算、相位校正、CRC校验）进行数学仿真，并验证通讯协议的数据包格式和异常数据过滤逻辑。",
+      "dependencies": [
+        "T-0.1"
+      ],
+      "core_inputs": [
+        "T-0.1 输出的算法设计文档",
+        "T-0.1 输出的通讯协议文档"
+      ],
+      "acceptance_criteria": "Python 仿真脚本运行成功，输出的曲线和日志证明算法逻辑和协议格式满足设计需求。",
+      "domain_tags": [
+        "Python 科学计算",
+        "算法仿真",
+        "协议格式验证"
+      ],
+      "verification_requirement": "1. 编写 Python 脚本（利用 YAML 中 'python' 环境及 'numpy', 'matplotlib' 库）。 2. 运行脚本，生成内阻计算与相位校正曲线图，输出协议解析日志。 3. 审查输出结果，确认设计无误。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-0.3",
+      "phase": "阶段零：各个子任务的功能设计 (Design Model)",
+      "description": "利用 T-0.1和T-0.2的输出内容，以及项目原始需求、thinkingmap.md语料，根据Plan.json内各个子任务信息，为每个子任务设计明确的任务目标、实现内容、实现方法、注意事项，对子任务做详细的设计，后续子任务将依据此阶段内容进行实际执行。",
+      "dependencies": [
+        "T-0.1",
+        "T-0.2"
+      ],
+      "core_inputs": [
+        "T-0.1 输出的所有文档",
+        "T-0.2 输出的所有文档",
+        "Plan.json",
+        "项目原始需求(Build Context)",
+        "thinkingmap.md"
+      ],
+      "acceptance_criteria": "所有子任务都有自己的详细设计，且设计内容符合功能需求、符合一般代码规范，逻辑通顺。",
+      "domain_tags": [
+        "子任务详细设计"
+      ],
+      "verification_requirement": "所有子任务都有自己的详细设计文档，通过评审。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-1.1",
+      "phase": "阶段一：最小可编译基线 (MVP Baseline)",
+      "description": "搭建最小可编译工程，完成启动文件(Startup)、时钟树配置（HSE 8MHz→PLL→64MHz SysClk）、基础中断向量表及 Debug UART 轮询打印功能（使用UART1或2，波特率115200）。",
+      "dependencies": [
+        "T-0.3"
+      ],
+      "core_inputs": [
+        "T-0.1的架构设计文档",
+        "芯片数据手册",
+        "链接脚本(Scatterfile)",
+        "现有 system_stm32g0xx.c, stm32g0xx_it.c"
+      ],
+      "acceptance_criteria": "工程编译 0 Error 0 Warning；烧录后能通过串口稳定输出 'System Boot' 日志。",
+      "domain_tags": [
+        "Cortex-M0+ 启动流程",
+        "时钟树(RCC)配置",
+        "裸机 UART 驱动"
+      ],
+      "verification_requirement": "1. 使用 YAML 中 'mdk.build' 命令编译工程。 2. 使用 'openocd.flash_axf' 命令烧录固件。 3. 使用 'serial.read_log' 捕获串口日志，验证是否包含 'System Boot' 关键字。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.1",
+      "phase": "阶段二：增量功能模块 (Incremental Features) - UART DMA驱动",
+      "description": "实现基于 DMA+空闲中断的 UART 接收环形缓冲区，并封装为上层标准输入流接口。同时完成 UART 发送的 DMA 或轮询方式。",
+      "dependencies": [
+        "T-1.1"
+      ],
+      "core_inputs": [
+        "T-1.1 的底层驱动接口",
+        "设计文档中的 UART 接口定义"
+      ],
+      "acceptance_criteria": "已实现任务不受影响，同时在 1Mbps 波特率下连续注入 10MB 随机数据流，无丢帧、无溢出、内存无泄漏。",
+      "domain_tags": [
+        "DMA 传输配置",
+        "环形缓冲区算法",
+        "中断嵌套与优先级"
+      ],
+      "verification_requirement": "1. 编写 Python 脚本（利用 YAML 中 'python' 环境及 'pyserial' 库）。 2. 脚本通过串口向下位机高频注入数据。 3. 验证下位机回传数据的完整性与 CRC 校验。 4. 验证前面所有设计功能不受影响。 5. 输出已实现的各个子功能测试记录。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.2",
+      "phase": "阶段二：增量功能模块 - TIM/ADC采样基础",
+      "description": "配置 TIM3_CH3 输出 1kHz 50%占空比 PWM（用于交流注入信号），配置 ADC 以 10kHz 采样率（由 TIM 触发注入组转换）采集 VOLT_ADC、CURRENT_ADC、RES_ADC 三个通道，并实现 ADC 采样值的 DMA 传输或中断读取。",
+      "dependencies": [
+        "T-1.1"
+      ],
+      "core_inputs": [
+        "芯片数据手册定时器/ADC章节",
+        "T-0.1 的采样架构设计"
+      ],
+      "acceptance_criteria": "TIM3_CH3 输出频率 1kHz±1Hz，占空比 50%±1%；ADC 以 10kHz 稳定采样，无溢出中断；通过示波器或逻辑分析仪验证。",
+      "domain_tags": [
+        "TIM 定时器配置",
+        "ADC 注入组与定时触发",
+        "DMA 传输"
+      ],
+      "verification_requirement": "1. 使用 openocd 烧录后，用逻辑分析仪测量 TIM3_CH3 引脚波形。 2. 在代码中设置断点，观察 ADC 采样缓冲区数据是否以 10kHz 更新。 3. 可通过串口打印采样序号验证连续性。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.3",
+      "phase": "阶段二：增量功能模块 - DS18B20驱动",
+      "description": "实现 DS18B20 温度传感器的 1-Wire 驱动（状态机非阻塞），支持初始化、ROM搜索（可选）、温度转换启动和读取。每 30 秒执行一次温度测量。",
+      "dependencies": [
+        "T-2.2"
+      ],
+      "core_inputs": [
+        "DS18B20 数据手册",
+        "GPIO 输出/输入配置及定时器微秒延时"
+      ],
+      "acceptance_criteria": "能够正确读取 DS18B20 温度值（精度 ±2°C），数据通过串口输出，无阻塞。",
+      "domain_tags": [
+        "1-Wire 协议",
+        "状态机设计",
+        "GPIO 位操作"
+      ],
+      "verification_requirement": "1. 烧录后连接 DS18B20 到 H6 接口。 2. 串口捕获温度输出，与已知温度计对比。 3. 保持系统其他功能（如 UART 回显）正常运行。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.4",
+      "phase": "阶段二：增量功能模块 - 主从机识别",
+      "description": "读取 M_S 引脚（Pin 12）电平，判断本设备为 Host 或 Slave。开机时读取一次，之后释放引脚并设为输入模式以降低功耗。根据模式设置系统状态机的初始状态。",
+      "dependencies": [
+        "T-1.1"
+      ],
+      "core_inputs": [
+        "GPIO 输入配置",
+        "设计文档中的主机/从机行为定义"
+      ],
+      "acceptance_criteria": "M_S 引脚拉低时输出 'Host mode' 日志，拉高时输出 'Slave mode' 日志；后续该引脚不影响功能。",
+      "domain_tags": [
+        "GPIO 配置与读取",
+        "系统初始化逻辑"
+      ],
+      "verification_requirement": "1. 用跳线将 M_S 接地，烧录后串口输出 'Host mode'。 2. 将跳线接 3.3V，烧录后输出 'Slave mode'。 3. 在运行中读取 M_S 引脚应不影响当前模式。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.5",
+      "phase": "阶段二：增量功能模块 - UART级联协议",
+      "description": "实现自定义级联通讯协议：主机发送地址分配广播、轮询命令（1#→2#→3#...），从机响应本机数据（内阻、电压、电流、温度）。支持帧同步、校验（CRC8/CRC16）、超时重传机制。",
+      "dependencies": [
+        "T-2.1",
+        "T-2.4"
+      ],
+      "core_inputs": [
+        "T-0.1 协议设计文档",
+        "T-2.1 的 UART 收发接口"
+      ],
+      "acceptance_criteria": "两块板子级联（一个主机，一个从机）能完成地址分配和周期性数据读取，无数据错帧或卡死。",
+      "domain_tags": [
+        "通讯协议设计",
+        "状态机实现",
+        "CRC 校验"
+      ],
+      "verification_requirement": "1. 使用两块目标板（或一块板+Python模拟从机）进行测试。 2. Python 脚本（利用 pyserial）模拟从机与主机交互，验证协议正确性。 3. 长时间运行（>1小时）无异常。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.6",
+      "phase": "阶段二：增量功能模块 - 内阻测量算法",
+      "description": "实现基于 1kHz 交流注入法的内阻计算：同步采集注入电流（CURRENT_ADC）和电池端电压（VOLT_ADC），进行相位校正（补偿运放和滤波器延迟），使用 DFT 或相敏检波提取基波分量，计算复阻抗实部作为内阻，支持多点校准（电阻箱替换电池，建立 ADC 读数与真实阻值的映射表）。",
+      "dependencies": [
+        "T-2.2"
+      ],
+      "core_inputs": [
+        "设计文档中的算法推导",
+        "校准电阻值列表"
+      ],
+      "acceptance_criteria": "在已知阻值电阻（如 10mΩ, 100mΩ, 1Ω）上测量，误差 ≤±5% 或 ±2mΩ（取较大值）；校准后误差 ≤±1%。",
+      "domain_tags": [
+        "数字信号处理 (DFT/相敏检波)",
+        "线性代数 (最小二乘拟合)",
+        "嵌入式算法优化"
+      ],
+      "verification_requirement": "1. 连接已知电阻进行测量，记录结果。 2. 使用 Python 脚本（numpy）离线验证计算逻辑与相位校正的正确性。 3. 通过 UART 输出内阻值，与高精度万用表对比。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.7",
+      "phase": "阶段二：增量功能模块 - 异常数据过滤",
+      "description": "设计异常数据识别算法：滑动窗口记录最近 N 个内阻测量值，计算均值和标准差，当新值超出（均值 ± k*标准差）时丢弃该数据，并用前一个有效值代替。k 和 N 可配置。",
+      "dependencies": [
+        "T-2.6"
+      ],
+      "core_inputs": [
+        "T-0.1 中的异常过滤设计文档"
+      ],
+      "acceptance_criteria": "模拟注入尖峰干扰（如瞬时改变 ADC 输入），过滤后输出数据平滑，无跳变；正常数据通过率 >95%。",
+      "domain_tags": [
+        "统计滤波",
+        "滑动窗口算法",
+        "定点数运算"
+      ],
+      "verification_requirement": "1. 通过 Python 脚本生成带噪声的模拟数据流，喂给下位机过滤算法（通过串口注入或修改固件内部数据）。 2. 观察过滤后的输出是否稳定。 3. 验证配置参数可更改。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.8",
+      "phase": "阶段二：增量功能模块 - 主状态机调度",
+      "description": "实现系统主状态机，协调所有功能模块：定时（可配置周期，默认1分钟）启动内阻测量、30秒启动温度测量、处理 UART 级联通讯、执行异常数据过滤、管理校准模式。所有状态转换非阻塞，使用 SysTick 为时基。",
+      "dependencies": [
+        "T-2.3",
+        "T-2.5",
+        "T-2.6",
+        "T-2.7"
+      ],
+      "core_inputs": [
+        "T-0.3 各子任务状态机设计",
+        "系统级时序要求"
+      ],
+      "acceptance_criteria": "系统按预期时间间隔执行测量和通讯，串口日志完整反映状态转换，无任务饿死或死锁。",
+      "domain_tags": [
+        "状态机设计模式",
+        "RTOS-less 调度",
+        "模块集成"
+      ],
+      "verification_requirement": "1. 烧录后运行 10 分钟，串口日志验证每个周期内阻测量和温度测量至少各执行一次。 2. 级联通讯正常轮询。 3. 通过串口命令切换校准模式，观察状态变化。",
+      "is_completed": false
+    },
+    {
+      "task_id": "T-2.9",
+      "phase": "阶段二：增量功能模块 - 集成测试与HIL验证",
+      "description": "执行完整的集成测试：使用 Python 上位机模拟主机/从机行为，覆盖所有协议命令；连接实际电阻和 DS18B20 进行 HIL 测试；验证测量精度、级联可靠性、异常过滤效果；生成测试报告。",
+      "dependencies": [
+        "T-2.8"
+      ],
+      "core_inputs": [
+        "所有前序任务的交付物",
+        "测试工装（电阻箱、DS18B20、另一块板或USB转串口）"
+      ],
+      "acceptance_criteria": "所有测试用例通过，内阻测量误差在指标内，级联通讯无丢帧，温度测量正常，最终输出可通过 Keil 编译并稳定运行。",
+      "domain_tags": [
+        "硬件在环测试",
+        "自动化测试脚本",
+        "系统集成"
+      ],
+      "verification_requirement": "1. 使用 YAML 中 'python.run_pytest' 执行预定义的 pytest 测试套件（位于 host_tests/）。 2. 使用 'openocd.flash_axf' 每次烧录后自动运行测试。 3. 测试脚本调用 serial 接口发送命令并验证响应。 4. 记录通过/失败统计。",
+      "is_completed": false
+    }
+  ],
+  "cross_module_interfaces_and_risks": [
+    "DMA 与 CPU 访问 SRAM 的总线矩阵冲突：ADC 与 UART 同时使用 DMA 时可能竞争总线带宽，需合理配置 DMA 优先级并验证无采样丢失。",
+    "UART 级联协议中字节序与对齐问题：主机和从机可能因编译选项不同导致结构体成员对齐不一致，必须使用显式打包（__packed）或逐字节解析。",
+    "TIM3_CH3 PWM 输出与 ADC 触发时序耦合：若 TIM3 同时用于 PWM 和触发 ADC，需确认更新事件与 PWM 占空比更新不冲突，建议使用另一个定时器（如 TIM14）专门触发 ADC。",
+    "1-Wire 驱动时序依赖精确延时：DS18B20 协议要求微秒级延时，若系统被其他中断（如 UART）长时间占用，可能导致时序失效，需在临界区关闭中断或使用定时器硬件延时。",
+    "内阻计算中相位校正与 ADC 同步误差：运放和 RC 滤波器引入的相移需通过校准补偿，若校准不精确或温度漂移，测量误差会增大，需设计温漂补偿机制。"
+  ]
+}

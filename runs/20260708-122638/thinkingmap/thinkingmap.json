@@ -1,0 +1,397 @@
+{
+  "goal_id": "BATTERY_IR_FIRMWARE",
+  "free_brainstorm": "这个项目看起来是一个典型的嵌入式固件开发，但有几个独特之处：MCU资源极度紧张（8KB RAM, 32KB Flash），却需要同时处理PWM生成、ADC同步采样（10kHz）、UART级联通信、DS18B20温度读取、异常数据识别。所有功能必须在非阻塞状态机中运行。第一反应是担心Flash装不下HAL库和全部功能代码，可能需要裁剪HAL或直接操作寄存器。另一个直觉是ADC同步采样是核心难点：需要让ADC转换与PWM相位对齐，通常用定时器触发ADC注入组。但RAM只有8KB，不能做大量数据缓冲。PWM引脚PA7的AF映射可能是TIM3_CH2而非CH3，需要确认。级联通信协议要自定义，地址分配要健壮。兴奋点是可以在有限资源下实现一个完整的测量系统，担忧点是硬件未到手，所有验证只能靠仿真和逻辑推演，可能遗漏硬件细节。",
+  "angle_sweep": "【技术】涉及STM32G0 Cortex-M0+ MCU，使用HAL库和LL库（可能部分LL以节省代码），Keil MDK-ARM ArmClang编译器。外设：TIM3（PWM输出）、ADC1（三通道同步采样）、USART1/2（级联通信）、GPIO（1-Wire模拟）。难点：低资源下实现10kHz ADC与1kHz PWM同步，DS18B20精确时序（需要微秒级延时，不能用HAL_Delay），UART协议设计（避免竞争）。\n【业务/领域】属于电池管理系统（BMS）中的内阻测量单元，用于评估电池健康状态。核心业务逻辑：通过交流注入法测量内阻，结合温度补偿，通过级联通信上传数据。应用场景可能是储能系统或电池组维护。\n【组织/协作】文档未提及团队分工，推测是个人项目或小团队。如需协作，需明确固件模块接口划分（如PWM驱动、ADC驱动、通信协议、应用层）。\n【风险】1. Flash容量不足：HAL库加上用户代码可能超过32KB。2. 编译错误历史：GPIO_AF2_TIM3宏错误需修正。3. 硬件不确定性：U8~U11运放型号未知，可能影响信号调理。4. 时序风险：DS18B18使用位带操作时，中断可能破坏时序。5. 无硬件测试：功能正确性依赖静态分析和逻辑推演。6. 级联通信可能死锁或地址冲突。\n【依赖】依赖STM32G0 HAL库、CMSIS、启动文件、链接脚本（battery_re.sct）。依赖硬件：CA-IS3721隔离器、DS18B20、运放LM258和未知运放、TLV431基准源。依赖外部电源12V/3.3V。\n【集成】需要集成PWM输出到RC滤波恒流源、ADC采样分压网络和运放输出、UART通过隔离器连接到外部接线端子（CN3/CN4）。DS18B20通过上拉电阻连接。软件集成：需在main.c中初始化所有外设并启动状态机。\n【测试/验证】目前只有编译验证成功。需要单元测试（如内阻计算函数、异常检测算法），集成测试（模拟UART收发，检查状态机转换），系统级测试（在硬件上验证时序和精度）。验收标准是Keil UV4编译无错误、程序大小符合资源限制、所有需求功能实现。\n【性能/规模】性能要求：PWM 1kHz，ADC 10kHz，内阻测量间隔1分钟，温度30秒。这些对MCU负载很轻，只需注意中断频率。规模：单个节点代码量约10KB-20KB。级联节点数未指定，但每个节点独立，通信开销小。瓶颈可能是RAM用于存储ADC样本和通信缓冲。\n【安全】没有安全认证要求，但存在电气隔离（CA-IS3721）保证用户安全。软件层面需防止UART协议解析溢出，DS18B20 CRC校验。异常数据识别本身是一种安全保障。\n【可维护性】代码需采用模块化设计：每个外设驱动独立文件，应用状态机集中管理。使用清晰的命名和注释。未来可能增加校准功能或支持更多节点。\n【用户体验】最终用户是系统集成商或运维人员，他们通过主机读取模块数据。期望数据准确、通信稳定、指示灯（如果有）指示状态。由于无显示，只有UART输出，所以协议设计需简洁可靠。\n【时间/节奏】未明确截止日期。工作节奏可以是先完成基础框架（系统时钟、GPIO、UART），再实现PWM和ADC同步，然后添加DS18B20和通信协议，最后完善异常检测和校准。",
+  "keyword_expansion": "领域词汇：电池内阻、交流注入法、恒流源、RC滤波、分压网络、采样电阻、隔离通信、级联、地址分配、异常数据识别。\n技术名词：STM32G030F6P6, TSSOP-20, Keil MDK-ARM, UV4, ArmClang, HAL库, LL库, CMSIS, TIM3_CH2, ADC_IN1, ADC_IN6, ADC_IN7, USART1, USART2, DS18B20, 1-Wire, CA-IS3721, LM258, TLV431, VPS8701B, XC6206P332MR, 64MHz, 8KB RAM, 32KB Flash, 1kHz, 10kHz, 50%占空比, 60s周期, 30s周期。\n约束条件：Keil UV4编译，ArmClang V6.19，宏定义USE_HAL_DRIVER,STM32G030xx，Stack 0x400, Heap 0x200，闪存0x08000000，RAM 0x20000000，无硬件测试。\n关联概念：BMS、SoH（健康状态）、电池模型、卡尔曼滤波（可能不用）、CAN总线（这里用UART）、Modbus（可能类似）。\n隐喻和类比：这个系统像一个小型数据采集站，定期读取传感器并通过串行总线报告。级联通信类似于Daisy-chain。内阻测量类似于四线开尔文测量法（虽然这里是两线但用交流）。",
+  "project_identity": "类型：嵌入式设备固件，属于应用层固件，运行在STM32G0微控制器上。领域：电池测试/管理（BMS子系统）。核心特征：低资源消耗（8KB RAM/32KB Flash），实时性要求中等（每分钟测量），多传感器融合（电压、电流、温度），多节点级联通信。规模和技术复杂度：中等——外设驱动和状态机较简单，但资源限制和同步要求增加了难度。",
+  "keyword_matrix": {
+    "dependencies": {
+      "PWM": [
+        "TIM3",
+        "PA7 AF2"
+      ],
+      "ADC_sync": [
+        "TIM3触发",
+        "ADC注入组"
+      ],
+      "USART": [
+        "HAL_UART",
+        "GPIO AF"
+      ],
+      "DS18B20": [
+        "GPIO bit-bang",
+        "us延迟"
+      ],
+      "clock": [
+        "HSE 8MHz",
+        "PLL 64MHz"
+      ],
+      "power": [
+        "3.3V LDO",
+        "1.65V reference"
+      ]
+    },
+    "synonyms": {
+      "CURRENT_ADC": "采样电阻电压",
+      "RES_ADC": "电流采样电阻电压",
+      "VOLT_ADC": "电池电压"
+    },
+    "conflicts": [
+      "低延迟 vs 非阻塞状态机",
+      "HAL库方便性 vs Flash容量",
+      "8KB RAM vs 大缓冲需求"
+    ],
+    "core_anchors": [
+      "内阻计算",
+      "UART协议",
+      "异常检测",
+      "ADC同步"
+    ]
+  },
+  "semantic_synthesis": "核心张力在于有限资源（Flash/RAM）与功能完整性的权衡。需要精细裁剪HAL库、避免使用printf等大型函数，可能必须用LL库替代部分HAL。另一个张力是同步采样要求（PWM触发ADC）与灵活的调度（状态机）之间的协调。反复出现的模式是使用中断驱动和状态机来避免阻塞。隐含假设包括：1. 硬件连接与网表完全一致；2. U8~U11运放可工作于1kHz；3. 1-Wire时序在中断关闭下能精确控制；4. 级联通信不会发生数据冲突。",
+  "architecture_map": {
+    "modules": [
+      {
+        "name": "SystemInit",
+        "responsibility": "时钟配置、HAL初始化、全局中断"
+      },
+      {
+        "name": "PWM_Driver",
+        "responsibility": "配置TIM3通道输出1kHz 50%方波",
+        "depends": [
+          "TIM3",
+          "GPIO PA7"
+        ]
+      },
+      {
+        "name": "ADC_Driver",
+        "responsibility": "配置ADC1三通道（PA0,PA5,PA6），由TIM3触发注入组同步采样",
+        "depends": [
+          "ADC1",
+          "TIM3_TRGO"
+        ]
+      },
+      {
+        "name": "UART_Communication",
+        "responsibility": "管理USART1（主机端）和USART2（从机端）数据收发，实现自定义协议",
+        "depends": [
+          "USART1",
+          "USART2"
+        ]
+      },
+      {
+        "name": "DS18B20_Driver",
+        "responsibility": "通过PA3 GPIO模拟1-Wire读取温度",
+        "depends": [
+          "GPIO",
+          "微秒延时"
+        ]
+      },
+      {
+        "name": "Measurement_Scheduler",
+        "responsibility": "状态机管理1分钟内阻测量和30秒温度测量",
+        "depends": [
+          "定时器或SysTick"
+        ]
+      },
+      {
+        "name": "Resistance_Calculation",
+        "responsibility": "基于ADC样本计算内阻，包括相位校准和校准系数",
+        "depends": [
+          "ADC数据"
+        ]
+      },
+      {
+        "name": "Anomaly_Detection",
+        "responsibility": "识别异常数据（充放电干扰等）并标记",
+        "depends": [
+          "计算值"
+        ]
+      }
+    ],
+    "layers": [
+      "硬件层（外设）",
+      "HAL/LL驱动层",
+      "模块驱动层（PWM,ADC,UART,1-Wire）",
+      "应用层（调度、计算、通信）"
+    ],
+    "data_flow": "PWM触发ADC → ADC完成中断 → 读取三个ADC结果 → 数字滤波（平均？） → 存储在全局结构体 → 状态机主循环中计算内阻 → 将结果加入发送缓冲 → UART发送",
+    "control_flow": "SysTick或定时器产生1分钟和30秒事件 → 状态机切换 → 触发测量 → 等待ADC完成 → 处理数据 → 发送结果",
+    "interfaces": {
+      "internal": {
+        "ADC_result_buffer": "数组或结构体",
+        "UART_tx_queue": "环形缓冲区"
+      },
+      "external": {
+        "UART1_TX/RX": "级联通信",
+        "UART2_TX/RX": "隔离通信",
+        "DS18B20_DQ": "1-Wire"
+      }
+    }
+  },
+  "ownership_map": {
+    "boundaries": {
+      "PWM": "只负责产生固定波形，不关心ADC",
+      "ADC": "负责转换和DMA（可选），输出原始数据",
+      "UART": "负责收发字节流，协议解析由上层处理",
+      "DS18B20": "负责温度读取，返回整数温度值",
+      "Measurement_Scheduler": "掌握所有测量时机，调用其他模块"
+    },
+    "shared_or_orphan": {
+      "校准参数": "由Resistance_Calculation拥有，但可能从外部写入",
+      "异常检测算法": "属于应用层，可单独抽取",
+      "硬件配置宏": "公共头文件"
+    },
+    "overlap_areas": {
+      "ADC与PWM触发": "需要紧密耦合配置（TIM3_TRGO）",
+      "UART协议解析与状态机": "协议解析可能在UART接收中断中完成，但会影响状态机"
+    }
+  },
+  "risk_map": {
+    "known_risks": [
+      "Flash容量不足：HAL库+代码可能超过32KB，需裁剪或使用LL库",
+      "TIM3通道映射错误：PA7实际为TIM3_CH2，不是CH3，需修改配置",
+      "UART1引脚复用配置：PB3为USART1_TX需正确设置AF",
+      "DS18B20时序精度：中断可能导致延迟，需关中断或使用精确延时",
+      "ADC同步不稳：如果触发延迟或采样保持时间不足",
+      "级联通信死锁：协议需要超时和重试机制"
+    ],
+    "unknown_unknowns": [
+      "运放U8~U11的实际型号和特性（带宽、漂移）",
+      "实际电路噪声水平对ADC精度的影响",
+      "隔离器CA-IS3721的延迟对UART时序影响",
+      "无硬件实测，无法验证内阻计算准确性"
+    ],
+    "weakest_link": "ADC同步采样与PWM相位对齐的实现，若不准则内阻计算直接错误",
+    "single_point_failure": "主循环状态机如果卡死在某个状态（例如UART接收等待），整个系统停止响应。应采用看门狗（IWDG）防止"
+  },
+  "verification_map": {
+    "test_types": {
+      "compile_test": "通过Keil UV4编译无错误，检查warning",
+      "static_analysis": "检查代码规范、未初始化变量、越界等",
+      "unit_test": "针对内阻计算函数、异常检测函数编写独立测试（在PC上运行）",
+      "integration_test": "模拟UART主机从机交互，验证地址分配和数据请求",
+      "hardware_test": "（待进行）使用示波器检查PWM波形、ADC时序、UART信号"
+    },
+    "acceptance_criteria": [
+      "Keil UV4编译无错误（0 error），Program Size在32KB Flash/8KB RAM内",
+      "PWM输出1kHz 50%占空比方波（通过逻辑分析仪验证）",
+      "ADC以10kHz同步采样三个通道（通过调试变量验证）",
+      "UART通信协议正常：主机可分配地址并读取所有从机数据",
+      "DS18B20每30秒读取一次，温度正确（+/-1℃）",
+      "内阻测量每1分钟一次，输出合理值（通过已知电阻验证）",
+      "异常数据识别正确标记干扰"
+    ],
+    "evidence_required": [
+      "构建日志（build_log.txt）",
+      "代码审查记录",
+      "测试报告（单元测试和集成测试）",
+      "硬件测试时序截图"
+    ],
+    "difficult_to_verify": [
+      "实际内阻测量精度（需标准电阻），",
+      "长时间运行稳定性（需老化测试）",
+      "级联通信多节点可靠性"
+    ],
+    "definition_of_done": "所有需求在固件中实现，且通过Keil UV4编译，程序链接后大小在资源限制内，代码经过审查并通过集成测试（仿真环境），等待硬件测试后最终验证。"
+  },
+  "project_thinking_map": {
+    "free_brainstorm": "这个项目看起来是一个典型的嵌入式固件开发，但有几个独特之处：MCU资源极度紧张（8KB RAM, 32KB Flash），却需要同时处理PWM生成、ADC同步采样（10kHz）、UART级联通信、DS18B20温度读取、异常数据识别。所有功能必须在非阻塞状态机中运行。第一反应是担心Flash装不下HAL库和全部功能代码，可能需要裁剪HAL或直接操作寄存器。另一个直觉是ADC同步采样是核心难点：需要让ADC转换与PWM相位对齐，通常用定时器触发ADC注入组。但RAM只有8KB，不能做大量数据缓冲。PWM引脚PA7的AF映射可能是TIM3_CH2而非CH3，需要确认。级联通信协议要自定义，地址分配要健壮。兴奋点是可以在有限资源下实现一个完整的测量系统，担忧点是硬件未到手，所有验证只能靠仿真和逻辑推演，可能遗漏硬件细节。",
+    "angle_sweep": "【技术】涉及STM32G0 Cortex-M0+ MCU，使用HAL库和LL库（可能部分LL以节省代码），Keil MDK-ARM ArmClang编译器。外设：TIM3（PWM输出）、ADC1（三通道同步采样）、USART1/2（级联通信）、GPIO（1-Wire模拟）。难点：低资源下实现10kHz ADC与1kHz PWM同步，DS18B20精确时序（需要微秒级延时，不能用HAL_Delay），UART协议设计（避免竞争）。\n【业务/领域】属于电池管理系统（BMS）中的内阻测量单元，用于评估电池健康状态。核心业务逻辑：通过交流注入法测量内阻，结合温度补偿，通过级联通信上传数据。应用场景可能是储能系统或电池组维护。\n【组织/协作】文档未提及团队分工，推测是个人项目或小团队。如需协作，需明确固件模块接口划分（如PWM驱动、ADC驱动、通信协议、应用层）。\n【风险】1. Flash容量不足：HAL库加上用户代码可能超过32KB。2. 编译错误历史：GPIO_AF2_TIM3宏错误需修正。3. 硬件不确定性：U8~U11运放型号未知，可能影响信号调理。4. 时序风险：DS18B18使用位带操作时，中断可能破坏时序。5. 无硬件测试：功能正确性依赖静态分析和逻辑推演。6. 级联通信可能死锁或地址冲突。\n【依赖】依赖STM32G0 HAL库、CMSIS、启动文件、链接脚本（battery_re.sct）。依赖硬件：CA-IS3721隔离器、DS18B20、运放LM258和未知运放、TLV431基准源。依赖外部电源12V/3.3V。\n【集成】需要集成PWM输出到RC滤波恒流源、ADC采样分压网络和运放输出、UART通过隔离器连接到外部接线端子（CN3/CN4）。DS18B20通过上拉电阻连接。软件集成：需在main.c中初始化所有外设并启动状态机。\n【测试/验证】目前只有编译验证成功。需要单元测试（如内阻计算函数、异常检测算法），集成测试（模拟UART收发，检查状态机转换），系统级测试（在硬件上验证时序和精度）。验收标准是Keil UV4编译无错误、程序大小符合资源限制、所有需求功能实现。\n【性能/规模】性能要求：PWM 1kHz，ADC 10kHz，内阻测量间隔1分钟，温度30秒。这些对MCU负载很轻，只需注意中断频率。规模：单个节点代码量约10KB-20KB。级联节点数未指定，但每个节点独立，通信开销小。瓶颈可能是RAM用于存储ADC样本和通信缓冲。\n【安全】没有安全认证要求，但存在电气隔离（CA-IS3721）保证用户安全。软件层面需防止UART协议解析溢出，DS18B20 CRC校验。异常数据识别本身是一种安全保障。\n【可维护性】代码需采用模块化设计：每个外设驱动独立文件，应用状态机集中管理。使用清晰的命名和注释。未来可能增加校准功能或支持更多节点。\n【用户体验】最终用户是系统集成商或运维人员，他们通过主机读取模块数据。期望数据准确、通信稳定、指示灯（如果有）指示状态。由于无显示，只有UART输出，所以协议设计需简洁可靠。\n【时间/节奏】未明确截止日期。工作节奏可以是先完成基础框架（系统时钟、GPIO、UART），再实现PWM和ADC同步，然后添加DS18B20和通信协议，最后完善异常检测和校准。",
+    "keyword_expansion": "领域词汇：电池内阻、交流注入法、恒流源、RC滤波、分压网络、采样电阻、隔离通信、级联、地址分配、异常数据识别。\n技术名词：STM32G030F6P6, TSSOP-20, Keil MDK-ARM, UV4, ArmClang, HAL库, LL库, CMSIS, TIM3_CH2, ADC_IN1, ADC_IN6, ADC_IN7, USART1, USART2, DS18B20, 1-Wire, CA-IS3721, LM258, TLV431, VPS8701B, XC6206P332MR, 64MHz, 8KB RAM, 32KB Flash, 1kHz, 10kHz, 50%占空比, 60s周期, 30s周期。\n约束条件：Keil UV4编译，ArmClang V6.19，宏定义USE_HAL_DRIVER,STM32G030xx，Stack 0x400, Heap 0x200，闪存0x08000000，RAM 0x20000000，无硬件测试。\n关联概念：BMS、SoH（健康状态）、电池模型、卡尔曼滤波（可能不用）、CAN总线（这里用UART）、Modbus（可能类似）。\n隐喻和类比：这个系统像一个小型数据采集站，定期读取传感器并通过串行总线报告。级联通信类似于Daisy-chain。内阻测量类似于四线开尔文测量法（虽然这里是两线但用交流）。",
+    "project_identity": "类型：嵌入式设备固件，属于应用层固件，运行在STM32G0微控制器上。领域：电池测试/管理（BMS子系统）。核心特征：低资源消耗（8KB RAM/32KB Flash），实时性要求中等（每分钟测量），多传感器融合（电压、电流、温度），多节点级联通信。规模和技术复杂度：中等——外设驱动和状态机较简单，但资源限制和同步要求增加了难度。",
+    "keyword_matrix": {
+      "dependencies": {
+        "PWM": [
+          "TIM3",
+          "PA7 AF2"
+        ],
+        "ADC_sync": [
+          "TIM3触发",
+          "ADC注入组"
+        ],
+        "USART": [
+          "HAL_UART",
+          "GPIO AF"
+        ],
+        "DS18B20": [
+          "GPIO bit-bang",
+          "us延迟"
+        ],
+        "clock": [
+          "HSE 8MHz",
+          "PLL 64MHz"
+        ],
+        "power": [
+          "3.3V LDO",
+          "1.65V reference"
+        ]
+      },
+      "synonyms": {
+        "CURRENT_ADC": "采样电阻电压",
+        "RES_ADC": "电流采样电阻电压",
+        "VOLT_ADC": "电池电压"
+      },
+      "conflicts": [
+        "低延迟 vs 非阻塞状态机",
+        "HAL库方便性 vs Flash容量",
+        "8KB RAM vs 大缓冲需求"
+      ],
+      "core_anchors": [
+        "内阻计算",
+        "UART协议",
+        "异常检测",
+        "ADC同步"
+      ]
+    },
+    "semantic_synthesis": "核心张力在于有限资源（Flash/RAM）与功能完整性的权衡。需要精细裁剪HAL库、避免使用printf等大型函数，可能必须用LL库替代部分HAL。另一个张力是同步采样要求（PWM触发ADC）与灵活的调度（状态机）之间的协调。反复出现的模式是使用中断驱动和状态机来避免阻塞。隐含假设包括：1. 硬件连接与网表完全一致；2. U8~U11运放可工作于1kHz；3. 1-Wire时序在中断关闭下能精确控制；4. 级联通信不会发生数据冲突。",
+    "architecture_map": {
+      "modules": [
+        {
+          "name": "SystemInit",
+          "responsibility": "时钟配置、HAL初始化、全局中断"
+        },
+        {
+          "name": "PWM_Driver",
+          "responsibility": "配置TIM3通道输出1kHz 50%方波",
+          "depends": [
+            "TIM3",
+            "GPIO PA7"
+          ]
+        },
+        {
+          "name": "ADC_Driver",
+          "responsibility": "配置ADC1三通道（PA0,PA5,PA6），由TIM3触发注入组同步采样",
+          "depends": [
+            "ADC1",
+            "TIM3_TRGO"
+          ]
+        },
+        {
+          "name": "UART_Communication",
+          "responsibility": "管理USART1（主机端）和USART2（从机端）数据收发，实现自定义协议",
+          "depends": [
+            "USART1",
+            "USART2"
+          ]
+        },
+        {
+          "name": "DS18B20_Driver",
+          "responsibility": "通过PA3 GPIO模拟1-Wire读取温度",
+          "depends": [
+            "GPIO",
+            "微秒延时"
+          ]
+        },
+        {
+          "name": "Measurement_Scheduler",
+          "responsibility": "状态机管理1分钟内阻测量和30秒温度测量",
+          "depends": [
+            "定时器或SysTick"
+          ]
+        },
+        {
+          "name": "Resistance_Calculation",
+          "responsibility": "基于ADC样本计算内阻，包括相位校准和校准系数",
+          "depends": [
+            "ADC数据"
+          ]
+        },
+        {
+          "name": "Anomaly_Detection",
+          "responsibility": "识别异常数据（充放电干扰等）并标记",
+          "depends": [
+            "计算值"
+          ]
+        }
+      ],
+      "layers": [
+        "硬件层（外设）",
+        "HAL/LL驱动层",
+        "模块驱动层（PWM,ADC,UART,1-Wire）",
+        "应用层（调度、计算、通信）"
+      ],
+      "data_flow": "PWM触发ADC → ADC完成中断 → 读取三个ADC结果 → 数字滤波（平均？） → 存储在全局结构体 → 状态机主循环中计算内阻 → 将结果加入发送缓冲 → UART发送",
+      "control_flow": "SysTick或定时器产生1分钟和30秒事件 → 状态机切换 → 触发测量 → 等待ADC完成 → 处理数据 → 发送结果",
+      "interfaces": {
+        "internal": {
+          "ADC_result_buffer": "数组或结构体",
+          "UART_tx_queue": "环形缓冲区"
+        },
+        "external": {
+          "UART1_TX/RX": "级联通信",
+          "UART2_TX/RX": "隔离通信",
+          "DS18B20_DQ": "1-Wire"
+        }
+      }
+    },
+    "ownership_map": {
+      "boundaries": {
+        "PWM": "只负责产生固定波形，不关心ADC",
+        "ADC": "负责转换和DMA（可选），输出原始数据",
+        "UART": "负责收发字节流，协议解析由上层处理",
+        "DS18B20": "负责温度读取，返回整数温度值",
+        "Measurement_Scheduler": "掌握所有测量时机，调用其他模块"
+      },
+      "shared_or_orphan": {
+        "校准参数": "由Resistance_Calculation拥有，但可能从外部写入",
+        "异常检测算法": "属于应用层，可单独抽取",
+        "硬件配置宏": "公共头文件"
+      },
+      "overlap_areas": {
+        "ADC与PWM触发": "需要紧密耦合配置（TIM3_TRGO）",
+        "UART协议解析与状态机": "协议解析可能在UART接收中断中完成，但会影响状态机"
+      }
+    },
+    "risk_map": {
+      "known_risks": [
+        "Flash容量不足：HAL库+代码可能超过32KB，需裁剪或使用LL库",
+        "TIM3通道映射错误：PA7实际为TIM3_CH2，不是CH3，需修改配置",
+        "UART1引脚复用配置：PB3为USART1_TX需正确设置AF",
+        "DS18B20时序精度：中断可能导致延迟，需关中断或使用精确延时",
+        "ADC同步不稳：如果触发延迟或采样保持时间不足",
+        "级联通信死锁：协议需要超时和重试机制"
+      ],
+      "unknown_unknowns": [
+        "运放U8~U11的实际型号和特性（带宽、漂移）",
+        "实际电路噪声水平对ADC精度的影响",
+        "隔离器CA-IS3721的延迟对UART时序影响",
+        "无硬件实测，无法验证内阻计算准确性"
+      ],
+      "weakest_link": "ADC同步采样与PWM相位对齐的实现，若不准则内阻计算直接错误",
+      "single_point_failure": "主循环状态机如果卡死在某个状态（例如UART接收等待），整个系统停止响应。应采用看门狗（IWDG）防止"
+    },
+    "verification_map": {
+      "test_types": {
+        "compile_test": "通过Keil UV4编译无错误，检查warning",
+        "static_analysis": "检查代码规范、未初始化变量、越界等",
+        "unit_test": "针对内阻计算函数、异常检测函数编写独立测试（在PC上运行）",
+        "integration_test": "模拟UART主机从机交互，验证地址分配和数据请求",
+        "hardware_test": "（待进行）使用示波器检查PWM波形、ADC时序、UART信号"
+      },
+      "acceptance_criteria": [
+        "Keil UV4编译无错误（0 error），Program Size在32KB Flash/8KB RAM内",
+        "PWM输出1kHz 50%占空比方波（通过逻辑分析仪验证）",
+        "ADC以10kHz同步采样三个通道（通过调试变量验证）",
+        "UART通信协议正常：主机可分配地址并读取所有从机数据",
+        "DS18B20每30秒读取一次，温度正确（+/-1℃）",
+        "内阻测量每1分钟一次，输出合理值（通过已知电阻验证）",
+        "异常数据识别正确标记干扰"
+      ],
+      "evidence_required": [
+        "构建日志（build_log.txt）",
+        "代码审查记录",
+        "测试报告（单元测试和集成测试）",
+        "硬件测试时序截图"
+      ],
+      "difficult_to_verify": [
+        "实际内阻测量精度（需标准电阻），",
+        "长时间运行稳定性（需老化测试）",
+        "级联通信多节点可靠性"
+      ],
+      "definition_of_done": "所有需求在固件中实现，且通过Keil UV4编译，程序链接后大小在资源限制内，代码经过审查并通过集成测试（仿真环境），等待硬件测试后最终验证。"
+    }
+  },
+  "project_brainstorm": "基于STM32G030F6P6的电池内阻测量系统固件是一个资源受限的嵌入式项目，核心挑战是在8KB RAM和32KB Flash内实现PWM生成、ADC同步采样、UART级联通信、DS18B20温度读取和异常数据识别。关键难点在于Flash容量和ADC同步时序，需要谨慎裁剪HAL库、优化代码体积，并确保1-Wire时序可靠性。级联通信协议需健壮，异常检测算法需有效。由于无硬件测试，所有验证依赖编译和仿真，风险较高，但通过模块化设计和严格代码审查可以降低风险。",
+  "next_state": "G_COGNITION_SLICE"
+}

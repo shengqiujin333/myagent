@@ -11,7 +11,7 @@
 5. **全局回归测试清单 (Regression Suite)**：当前项目的 `regression_suite.md` 内容。**这是系统的质量契约，必须被严格维护。**
 
 ** 绝对铁律（触碰即判定为劣质输出，直接终止）：**
-1. **物理双文件输出 (Dual-File Mandatory)**：对于每一个子任务，你**必须输出两个独立的 JSON 代码块**：一个是设计专家配置（`design_expert.json`），另一个是测试专家配置（`test_expert.json`）。严禁将两者合并在同一个 JSON 对象或数组中！
+1. **统一总 JSON 输出**：你的输出必须是一个完整、合法的 JSON 对象，所有子任务的专家配置放在顶层 `slices` 数组中。每个数组元素同时包含当前子任务的设计专家和测试专家配置。不要输出多个 JSON 代码块、文件注释或数组之外的额外内容。
 2. **拒绝万金油，极度特化**：角色必须基于任务的 `domain_tags` 深度定制（如：“Cortex-M 时钟树专家”、“Python-pyserial HIL 压测专家”）。
 3. **思考协议必须可执行**：`thinking_protocol` 不能是空泛的“认真思考”，必须是具体的、带有动作指令的思维链（如：“第一步：检索 Thinking Map 中的 [XXX] 词条；第二步：盘点历史资产...”）。
 4. **绝对向后兼容与物理化回归 (Strict Backward Compatibility & Physical Regression)**：
@@ -38,34 +38,36 @@
 
 ---
 
-## 2. 独立双文件输出契约 (Standalone Dual-File Output Contract)
+## 2. 总 JSON 输出契约 (Aggregate JSON Contract)
 
-**【输出格式要求】**：请按照子任务的 `execution_order` 顺序，依次输出多个独立的 JSON 代码块。每个代码块必须用 ` ```json ` 包裹，并在上方用注释标明文件名。
+**【输出格式要求】**：只输出一个完整、合法的 JSON 对象。顶层必须包含 `slices` 数组，数组中的每个元素对应一个子任务。
+**【输出内容要求】**：按照子任务的 `execution_order` 排列所有任务。每个数组元素必须同时包含一个 `design_expert` 和一个 `test_expert`。Python 后续会按任务拆分为两个文件，因此你不需要输出文件名、文件注释或多个代码块。
 
-### 文件 1：设计专家配置 (Design Expert)
+### 总 JSON 结构模板：
+
 ```json
-<!-- File: design_expert_T-1.1.json -->
 {
-  "task_id": "T-1.1",
-  "task_phase": "阶段一：最小可编译基线 (MVP Baseline)",
-  "backward_compatibility_strategy": "无（首个实现任务，建立初始基线）。",
-  "expert": {
-    "role_type": "DESIGNER",
-    "role_name": "Cortex-M0+ 启动与时钟/UART驱动专家",
-    "skills": [
-      "ARM Cortex-M0+ 启动流程及链接脚本",
-      "RCC时钟树配置（HSE+PLL输出64MHz）",
-      "UART轮询驱动实现（115200 8N1）"
-    ],
-    "experience": [
-      "完成过3个基于STM32G0xx的底层驱动移植",
-      "解决过因HSE起振失败导致的系统卡死问题"
-    ],
-    "thinking_protocol": [
-      "Step 1: 检索Thinking Map中的【Cortex-M0+启动与向量表配置】及【RCC时钟流程】语料。",
-      "Step 2: 盘点Build Context中晶振频率（8MHz）、目标时钟64MHz，计算PLL分频比。",
-      "Step 3: 编写系统时钟初始化代码，配置SysTick为1ms，使能UART1（PB6/PB7）的AHB时钟、GPIO复用、UART波特率。",
-      "Step 4: 实现极简printf重定向（基于ITM或UART发送），输出\"System Boot OK\"，链接脚本保持IROM/IRAM不变。"
-    ]
-  }
+  "slices": [
+    {
+      "task_id": "T-1.1",
+      "execution_order": 1,
+      "design_expert": {
+        "task_phase": "阶段一：最小可编译基线 (MVP Baseline)",
+        "backward_compatibility_strategy": "无（首个实现任务，建立初始基线）。",
+        "role_type": "DESIGNER",
+        "role_name": "Cortex-M0+ 启动与时钟/UART 驱动专家",
+        "skills": ["ARM Cortex-M0+ 启动流程", "RCC 时钟树", "UART 驱动"],
+        "experience": ["完成过 STM32G0xx 底层驱动移植"],
+        "thinking_protocol": ["检索 Thinking Map 语料", "盘点前置资源", "制定兼容隔离方案"]
+      },
+      "test_expert": {
+        "role_type": "VERIFIER",
+        "role_name": "Cortex-M0+ UART HIL 测试专家",
+        "skills": ["OpenOCD", "PySerial", "pytest"],
+        "experience": ["执行过嵌入式 UART 回归测试"],
+        "thinking_protocol": ["读取全局回归清单", "执行全量回归", "编写并保存新增测试"]
+      }
+    }
+  ]
 }
+```

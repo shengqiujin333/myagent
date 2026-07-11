@@ -1,0 +1,452 @@
+{
+  "project_context_summary": "基于STM32G030F6P6 MCU实现电池内阻测量系统：产生1kHz方波经RC滤波成正弦波，经运放形成交流恒流注入电池，同步采样电压和电流计算内阻，支持多电池级联UART通信和DS18B20温度测量，全状态机非阻塞实现。",
+  "thinking_map_highlights": [
+    "Cortex-M0+启动流程与时钟树配置：HSE 8MHz经PLL倍频至64MHz，需正确配置RCC并处理Flash等待周期，避免死机。",
+    "PWM-ADC同步触发技术：利用TIM3输出比较事件触发ADC注入组采样，配置触发源和采样时间确保10kHz同步，需注意相位延迟。",
+    "DMA环形缓冲区与总线矩阵冲突避免：合理分配DMA优先级、使用双缓冲或循环模式，防止ADC与UART同时访问SRAM导致数据丢失。"
+  ],
+  "task_slices": [
+    {
+      "task_id": "T-0.1",
+      "task_phase": "阶段零：系统总体设计与文档输出 (Design First)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "嵌入式系统架构与协议设计专家",
+          "skills": [
+            "嵌入式系统软硬件分层架构设计",
+            "接口契约与模块划分",
+            "技术文档规范化编写"
+          ],
+          "experience": [
+            "主导过3个以上基于STM32的工控系统架构设计",
+            "精通UART级联通信协议与状态机建模",
+            "曾编写过完整的产品设计规格书并通过评审"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【系统架构设计模式】与【接口契约定义】语料。",
+            "Step 2: 深度分析Build Context的业务闭环需求，提取核心数据流与控制流。",
+            "Step 3: 划分HAL驱动层、中间件层（信号生成、UART协议、1-Wire）与应用层（状态机、计算、校准），定义各层API。",
+            "Step 4: 输出架构文档、通讯协议文档、内阻算法数学模型文档、测试大纲，确保包含状态机流转图与数据包帧结构。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "设计文档评审与一致性检查专家",
+          "skills": [
+            "设计文档完整性检查",
+            "需求可追溯性分析",
+            "评审报告撰写"
+          ],
+          "experience": [
+            "参与过5次以上嵌入式系统设计评审",
+            "熟悉ISO 26262文档评审流程"
+          ],
+          "thinking_protocol": [
+            "Step 1: 提取DESIGNER输出的所有设计文档。",
+            "Step 2: 对照Build Context中的用户需求逐条检查功能和约束覆盖情况。",
+            "Step 3: 检查模块接口定义是否清晰、无歧义，是否存在循环依赖。",
+            "Step 4: 输出评审意见列表，标注缺失项或不一致项，要求DESIGNER修改后再次评审。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-0.2",
+      "task_phase": "阶段零：设计验证与可行性推演 (Design Verification)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "算法仿真与协议验证脚本专家",
+          "skills": [
+            "Python科学计算（NumPy, SciPy）",
+            "数据可视化（Matplotlib）",
+            "协议帧格式解析与CRC校验"
+          ],
+          "experience": [
+            "精通交流注入法内阻测量数学模型仿真",
+            "曾编写Modbus协议仿真器用于验证CRC逻辑"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【交流阻抗测量数学原理】与【CRC校验实现】语料。",
+            "Step 2: 读取T-0.1输出的算法设计文档，提取内阻计算公式和相位校正方法。",
+            "Step 3: 用Python编写仿真脚本：生成模拟ADC数据（含噪声和相位偏移），计算内阻并绘制波形。",
+            "Step 4: 实现UART协议帧封装与解析，生成带CRC的测试数据包，输出解析日志验证协议正确性。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "仿真结果验证与可行性评估专家",
+          "skills": [
+            "误差分析与统计学",
+            "仿真结果可信度评估",
+            "文档一致性检查"
+          ],
+          "experience": [
+            "从事过3个算法的数字仿真验证项目",
+            "熟悉相位校正算法的精度评估方法"
+          ],
+          "thinking_protocol": [
+            "Step 1: 运行DESIGNER编写的仿真脚本，获取内阻计算曲线和协议解析日志。",
+            "Step 2: 将仿真结果与理论值对比，计算相对误差和均方根误差。",
+            "Step 3: 检查协议解析日志是否包含帧头、地址、CRC校验等关键字段，验证格式是否符合设计文档。",
+            "Step 4: 输出验证报告，若误差在1%以内且协议解析正确则判定Pass，否则要求DESIGNER修正。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-1.1",
+      "task_phase": "阶段一：最小可编译基线 (MVP Baseline)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "Cortex-M0+底层启动与UART调试专家",
+          "skills": [
+            "Cortex-M0+启动流程与中断向量表配置",
+            "RCC时钟树配置（HSE→PLL→64MHz）",
+            "裸机UART轮询驱动与printf重定向"
+          ],
+          "experience": [
+            "精通STM32G030启动汇编与链接脚本",
+            "曾解决因Flash等待周期不足导致的随机重启问题",
+            "多次实现UART printf调试输出"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【Cortex-M0+启动流程】与【时钟树配置步骤】语料。",
+            "Step 2: 查阅Build Context中的晶振频率（8MHz）和芯片型号，配置PLL参数得到64MHz。",
+            "Step 3: 编写系统时钟初始化代码，配置UART1引脚（PB6 TX, PB7 RX）为AF0，设置波特率115200。",
+            "Step 4: 实现极简的printf重定向（通过UART1发送字符），确保系统启动后输出'System Boot'字符串。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "OpenOCD烧录与串口日志自动化验证专家",
+          "skills": [
+            "OpenOCD/CMSIS-DAP调试器配置与固件烧录",
+            "Python pyserial非阻塞串口读取",
+            "正则表达式日志匹配"
+          ],
+          "experience": [
+            "熟练编写OpenOCD脚本并处理烧录异常",
+            "搭建过自动化编译-烧录-日志验证流水线"
+          ],
+          "thinking_protocol": [
+            "Step 1: 解析Plan中T-1.1的verification_requirement，确认编译命令和烧录命令。",
+            "Step 2: 调用Keil编译命令'UV4.exe -j0 -b MDK-ARM/battery_re.uvprojx -o MDK-ARM/build_log.txt'，检查返回码和日志。",
+            "Step 3: 调用OpenOCD烧录命令，将生成的axf刷入目标板。",
+            "Step 4: 使用Python脚本（pyserial）以115200bps打开串口，捕获启动日志，用正则匹配'System Boot'，超时5秒。匹配成功则输出Pass，否则Fail并打印捕获内容。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-2.1",
+      "task_phase": "阶段二：增量功能模块 (Incremental Features)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "定时器PWM与ADC硬件触发同步专家",
+          "skills": [
+            "TIM3配置为PWM输出（1kHz, 50%）",
+            "ADC1规则组/注入组硬件触发配置",
+            "DMA循环传输至内存缓冲区"
+          ],
+          "experience": [
+            "设计过PWM触发ADC同步采样系统，采样频率达100kHz",
+            "精通STM32G0定时器同步触发机制",
+            "曾优化DMA传输避免总线冲突"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【PWM-ADC同步触发配置】与【DMA循环模式】语料。",
+            "Step 2: 配置TIM3_CH3（PB0或相应引脚）为PWM输出，频率1kHz，占空比50%，设置TRGO事件为更新事件。",
+            "Step 3: 配置ADC1为硬件触发（TIM3_TRGO），采样通道CURRENT_ADC (PA6)、RES_ADC (PA7)、VOLT_ADC (PA1)，采样周期适配10kHz。",
+            "Step 4: 配置DMA1循环传输ADC数据到uint16_t缓冲区（大小1024），启动ADC和TIM3。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "信号质量与同步性硬件验证专家",
+          "skills": [
+            "示波器/逻辑分析仪使用",
+            "频率计测量",
+            "Python数据分析（FFT）",
+            "OpenOCD GDB调试"
+          ],
+          "experience": [
+            "多次使用示波器验证PWM频率和占空比",
+            "通过DMA读取ADC缓冲区数据并绘制时域波形验证同步"
+          ],
+          "thinking_protocol": [
+            "Step 1: 编译烧录后，使用示波器测量TIM3_CH3引脚，确认1kHz方波且占空比50%。",
+            "Step 2: 通过OpenOCD GDB挂起程序，读取ADC DMA缓冲区，导出数据。",
+            "Step 3: 编写Python脚本分析ADC样本时间戳，计算实际采样频率，应在10kHz±1%内。",
+            "Step 4: 观察PWM上升沿与ADC样本的相位关系，验证同步性（通过注入一个脉冲标记）。输出测试报告。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-2.2",
+      "task_phase": "阶段二：增量功能模块 (Incremental Features)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "UART DMA空闲中断与环形缓冲区专家",
+          "skills": [
+            "UART DMA接收配置",
+            "空闲中断接收不定长数据",
+            "环形缓冲区实现与竞争保护"
+          ],
+          "experience": [
+            "实现过高性能UART驱动（波特率1Mbps以上）",
+            "精通DMA乒乓缓冲和环形缓冲区设计",
+            "处理过优先级反转导致的数据丢失问题"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【UART DMA空闲中断】与【环形缓冲区设计模式】语料。",
+            "Step 2: 配置UART1和UART2为DMA接收模式，开启空闲中断，设置DMA优先级（高于ADC DMA以避免丢失）。",
+            "Step 3: 实现环形缓冲区（大小512字节），包括写指针、读指针、溢出检测，并提供互斥访问。",
+            "Step 4: 封装上层API：UART_Read(uint8_t* buf, uint16_t len)和UART_Write(uint8_t* buf, uint16_t len)。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "串口通信压力测试与完整性验证专家",
+          "skills": [
+            "Python pyserial数据发送与接收",
+            "大数据包随机生成",
+            "CRC校验比对"
+          ],
+          "experience": [
+            "搭建过千兆串口误码率测试平台",
+            "精通pyserial非阻塞读写与超时处理"
+          ],
+          "thinking_protocol": [
+            "Step 1: 编译烧录UART驱动固件（回显模式或转发模式）。",
+            "Step 2: 编写Python脚本：生成1KB随机数据包，添加CRC32校验，通过串口发送。",
+            "Step 3: 下位机接收后通过另一UART回传数据，脚本接收后计算CRC并比较原始数据。",
+            "Step 4: 连续发送1000次，统计丢帧率、错帧率，若<10^-6则Pass，否则检查驱动。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-2.3",
+      "task_phase": "阶段二：增量功能模块 (Incremental Features)",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "1-Wire精确时序驱动专家",
+          "skills": [
+            "GPIO位带操作实现微秒级延时",
+            "DS18B20初始化、ROM搜索、温度转换时序",
+            "中断屏蔽与临界段保护"
+          ],
+          "experience": [
+            "成功移植过DS18B20驱动到多个Cortex-M平台",
+            "熟悉寄生供电模式和强上拉配置"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【1-Wire协议时序】与【DS18B20操作流程】语料。",
+            "Step 2: 配置PA4为开漏输出，外接4.7kΩ上拉；编写微秒级延时函数（SysTick校准或DWT计数）。",
+            "Step 3: 实现初始化、ROM搜索、温度转换命令、读取暂存器等子程序。",
+            "Step 4: 在状态机中安排30s一次调用，注意在时序关键段（如复位脉冲和读取位）屏蔽高优先级中断。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "温度传感器长时间稳定性测试专家",
+          "skills": [
+            "温度记录与对比分析",
+            "长时间自动化测试脚本",
+            "异常重启检测"
+          ],
+          "experience": [
+            "执行过传感器HIL测试，连续运行72小时"
+          ],
+          "thinking_protocol": [
+            "Step 1: 烧录DS18B20驱动固件，设置每5秒输出一次温度（加速测试）。",
+            "Step 2: 使用Python脚本通过串口记录温度值，同时使用标准温度计记录环境温度。",
+            "Step 3: 运行10分钟以上，检查是否出现通信错误（如CRC错误、读取超时）。",
+            "Step 4: 将MCU温度输出与标准温度计对比，误差在±0.5℃内且无死锁则Pass。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-3.1",
+      "task_phase": "阶段三：核心算法与协议实现",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "相敏检波与内阻计算数字信号处理专家",
+          "skills": [
+            "交流注入法内阻计算数学模型",
+            "相位校正算法（DFT或正交解调）",
+            "CMSIS DSP库实数FFT与向量运算",
+            "浮点型定点转换优化"
+          ],
+          "experience": [
+            "精通相敏检波（PSD）实现正弦波幅度和相位提取",
+            "曾优化STM32G0浮点运算性能，使用CMSIS DSP提升效率"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【交流内阻测量数学原理】与【CMSIS DSP使用指南】语料。",
+            "Step 2: 根据T-0.1算法文档，实现R = V_bat_ac / I_inj * cos(θ)公式。",
+            "Step 3: 使用ADC缓冲区数据，通过正交解调或DFT提取电压和电流的基波幅度及相位差θ。",
+            "Step 4: 调用CMSIS DSP库函数（如arm_sin_f32）产生参考信号，实现乘法积累，输出内阻值（浮点型）。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "算法精度与相位校正验证专家",
+          "skills": [
+            "Python仿真数据生成",
+            "误差分析（相对误差、标准差）",
+            "硬件实测对比"
+          ],
+          "experience": [
+            "验证过电阻测量算法精度至0.1%"
+          ],
+          "thinking_protocol": [
+            "Step 1: 用Python生成已知内阻（如10mΩ、100mΩ、1Ω）的模拟ADC数据，加入相位差和噪声。",
+            "Step 2: 将模拟数据输入DESIGNER实现的算法函数（在PC上编译或通过HIL传参），比较输出与理论值。",
+            "Step 3: 调整相位校正参数，观察计算内阻的虚部，校验相位校正效果。",
+            "Step 4: 使用标准电阻（1%精度）连接硬件，通过串口读取计算结果，重复10次，计算误差均值和标准差。若误差≤1%且虚部接近零则Pass。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-3.2",
+      "task_phase": "阶段三：核心算法与协议实现",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "UART级联通信协议状态机专家",
+          "skills": [
+            "串行通信协议设计（帧头、地址、命令、数据、CRC16）",
+            "主机-从机状态机建模",
+            "M_S主从检测与角色锁定"
+          ],
+          "experience": [
+            "设计过RS485多设备级联协议，支持地址自动分配",
+            "精通Modbus RTU协议实现"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【UART通信协议帧结构】与【多设备级联地址分配机制】语料。",
+            "Step 2: 定义帧格式：帧头(0xAA 0x55)、地址(1-247)、命令、数据长度、数据体、CRC16。",
+            "Step 3: 实现主机状态机：检测M_S引脚（上拉后读电平，低电平为主机）-> 分配地址指令 -> 轮询各从机数据。",
+            "Step 4: 实现从机状态机：等待帧头匹配 -> 比较地址 -> 执行命令（返回数据）-> CRC校验，错误则静默等待。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "级联协议功能与鲁棒性测试专家",
+          "skills": [
+            "Python模拟从机/主机行为",
+            "帧格式解析与CRC校验",
+            "误码注入测试"
+          ],
+          "experience": [
+            "使用Python模拟器测试过Modbus从机栈"
+          ],
+          "thinking_protocol": [
+            "Step 1: 编写Python脚本模拟从机（监听串口、解析帧、回复响应）。",
+            "Step 2: 将下位机作为主机运行，连接PC串口，脚本捕获主机请求并分析帧头、地址、CRC。",
+            "Step 3: 验证主机地址分配流程：先请求地址，脚本模拟从机返回确认，主机分配后轮询。",
+            "Step 4: 干扰测试：脚本发送错误CRC帧或恶意帧，观察下位机是否正向处理（不误响应）。输出测试报告。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-4.1",
+      "task_phase": "阶段四：系统集成与状态机",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "非阻塞主状态机调度专家",
+          "skills": [
+            "有限状态机设计（状态表、事件驱动）",
+            "SysTick时间基准定时调度",
+            "资源管理（模块初始化顺序、电源管理）"
+          ],
+          "experience": [
+            "开发过基于状态机的多任务调度系统，无RTOS",
+            "精通状态机可维护性设计（状态枚举、转换函数指针）"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【状态机设计模式】与【时间触发调度】语料。",
+            "Step 2: 设计主状态图：包括初始化、等待测量、PWM+ADC采集、计算内阻、温度采集、UART通信、错误处理等状态。",
+            "Step 3: 使用SysTick作为时间基准，设置1分钟和30秒事件标志，在main循环中轮询标志触发状态转换。",
+            "Step 4: 集成T-2.1~T-3.2所有模块的初始化函数和主循环调用，确保不阻塞（所有耗时操作均使用DMA或中断）。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "系统集成与长时间稳定性验证专家",
+          "skills": [
+            "串口日志自动化分析",
+            "角色切换测试（M_S引脚电平变化）",
+            "长时间运行监控（1小时以上）"
+          ],
+          "experience": [
+            "执行过嵌入式系统HIL验证，发现过调度问题"
+          ],
+          "thinking_protocol": [
+            "Step 1: 烧录集成固件，观察串口输出日志，记录内阻数据和温度数据的时间戳。",
+            "Step 2: 验证1分钟内阻测量周期（偏差≤5%），30秒温度测量周期。",
+            "Step 3: 将M_S引脚接地（模拟主机），然后断开（模拟从机），重启后检查角色切换是否正确（日志中应显示主机/从机模式）。",
+            "Step 4: 运行1小时，监控系统是否出现死锁、看门狗复位或数据异常。输出长期稳定性报告。"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "T-4.2",
+      "task_phase": "阶段四：系统集成与状态机",
+      "experts": [
+        {
+          "role_type": "DESIGNER",
+          "role_name": "异常检测与校准算法专家",
+          "skills": [
+            "数字滤波（中值滤波、移动平均）",
+            "异常数据识别（突变检测、噪声统计）",
+            "Flash模拟EEPROM存储校准系数"
+          ],
+          "experience": [
+            "实现过电池管理系统充电干扰识别算法",
+            "熟练使用STM32片内Flash进行数据存储",
+            "曾设计多点校准线性拟合算法"
+          ],
+          "thinking_protocol": [
+            "Step 1: 检索Thinking Map中的【异常数据检测算法】与【Flash模拟EEPROM实现】语料。",
+            "Step 2: 实现中值滤波（窗口大小5）和移动平均（窗口大小10）用于平滑数据。",
+            "Step 3: 设计异常判别：若连续3个数据点超过阈值（如历史平均值的20%），或出现高频噪声（FFT判断），则标记异常。",
+            "Step 4: 实现校准功能：用户通过串口指令（如'CAL 10.0'）写入校准电阻值，系统计算系数并写入Flash（地址0x0800FC00），掉电保留。"
+          ]
+        },
+        {
+          "role_type": "VERIFIER",
+          "role_name": "干扰注入与校准持久化测试专家",
+          "skills": [
+            "Python模拟干扰数据注入",
+            "串口命令交互",
+            "Flash内容读取验证"
+          ],
+          "experience": [
+            "搭建过异常数据注入测试平台"
+          ],
+          "thinking_protocol": [
+            "Step 1: 编写Python脚本，通过串口发送模拟ADC数据（包含阶跃干扰、尖峰噪声）至MCU（测试模式）。",
+            "Step 2: 观察下位机输出日志，验证异常标记（如输出中增加异常标志位）。",
+            "Step 3: 发送校准指令'CAL 10.0'，然后发送'GET_CAL'读取校准系数，断电重启后再次读取，确认系数保留。",
+            "Step 4: 长时间运行（30分钟）并注入多种干扰，检查系统不崩溃且最终输出校准后的准确内阻值。"
+          ]
+        }
+      ]
+    }
+  ]
+}

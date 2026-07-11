@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python -m pytest tests/ -x --tb=short)",
+      "Bash(python -m pytest tests/test_build_context.py -x --tb=short)",
+      "Bash(python -m pytest tests/ --tb=short)",
+      "Bash(python -m pytest tests/test_build_context.py -k algorithm_simulation --tb=short)",
+      "Bash(python -m pytest tests/test_build_context.py -k subtask_feature_design --tb=short)",
+      "Bash(python -m pytest tests/test_build_context.py -k slice --tb=short)"
+    ]
+  }
+}

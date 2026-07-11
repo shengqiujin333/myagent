@@ -1,5 +1,8 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 import embedded_agent.cli as cli_module
 from embedded_agent.cli import continue_after_build_context_human
@@ -17,10 +20,62 @@ from embedded_agent.state import AgentState
 class FakeWorkflowLLM:
     def __init__(self):
         self.calls = 0
+        self.baseline_tool_called = False
+        self.design_tool_called = False
 
-    def invoke(self, _prompt):
+    def bind_tools(self, _tools):
+        return self
+
+    def invoke(self, messages):
         self.calls += 1
-        if self.calls == 1:
+        prompt = messages[-1].get("content", "") if isinstance(messages, list) else str(messages)
+        if "You are the design child task" in prompt and not self.design_tool_called:
+            self.design_tool_called = True
+
+            class DesignToolResponse:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "design-tool",
+                        "name": "bash",
+                        "args": {"command": "python -c \"print('design')\""},
+                    }
+                ]
+
+            return DesignToolResponse()
+        if "You are the test child task" in prompt:
+            class TestResponse:
+                content = "TEST_STATUS: PASS"
+
+            return TestResponse()
+        if "Minimum Compilable Baseline Engineer" in prompt and not self.baseline_tool_called:
+            self.baseline_tool_called = True
+
+            class ToolResponse:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "baseline-tool",
+                        "name": "bash",
+                        "args": {"command": "python -c \"print('baseline')\""},
+                    }
+                ]
+
+            return ToolResponse()
+        if self.baseline_tool_called and isinstance(messages, list) and messages[-1].get("role") == "tool":
+            class BaselineResponse:
+                content = ""
+
+            return BaselineResponse()
+        if "Engineering Task Slicing & Detailed Design Engine" in prompt:
+            content = '{"subtasks": [{"task_id": "task-1", "execution_order": 1}]}'
+        elif "Task Functional Test Design Engine" in prompt:
+            content = '{"tests": [{"task_id": "task-1", "test_cases": []}]}'
+        elif "Cognitive Slicing & Virtual Expert Generator" in prompt:
+            content = '{"slices": [{"task_id": "task-1", "design_expert": {}, "test_expert": {}}]}'
+        elif "Task Material Packaging Engineer" in prompt:
+            content = '{"task_id": "task-1", "execution_order": 1, "task_goal": "finish"}'
+        elif self.calls == 1:
             content = """{
   "goal_id": "goal-implementation",
   "free_brainstorm": "brainstorm",
@@ -145,6 +200,89 @@ def test_restore_state_from_run_loads_artifact_paths(tmp_path):
     assert state.design_file == design_file
     assert state.verification_env_file == tmp_path / "verification_env.yaml"
     assert state.verification_env == {"software": {"python": {}}}
+
+
+def test_restore_task_design_loads_latest_test_failure(tmp_path):
+    config = SimpleNamespace(
+        project_root=tmp_path / "project",
+        llm=SimpleNamespace(model_dump=lambda: {"provider": "test"}),
+        max_task_attempts=3,
+    )
+    run_dir = tmp_path / "runs" / "run-1"
+    context_file = run_dir / "context" / "context.md"
+    design_file = run_dir / "design" / "system_high_level_design.md"
+    all_tasks = run_dir / "material_summary" / "all_tasks.json"
+    manifest_file = run_dir / "subtask_feature_design" / "subtask_manifest.json"
+    failure_file = run_dir / "execution" / "1-T-1.1" / "test" / "attempt-001" / "latest_failure.md"
+    prompt_dir = run_dir / "material_summary" / "1-T-1.1" / "prompts"
+    for path, content in (
+        (context_file, "context"),
+        (design_file, "design"),
+        (all_tasks, '{"tasks": [{"index": 1, "task_id": "T-1.1"}]}'),
+        (failure_file, "UART failed"),
+        (prompt_dir / "design_prompt.md", "design prompt"),
+        (prompt_dir / "test_prompt.md", "test prompt"),
+        (manifest_file, json.dumps([{
+            "index": 1,
+            "task_id": "T-1.1",
+            "design_prompt_file": "material_summary/1-T-1.1/prompts/design_prompt.md",
+            "test_prompt_file": "material_summary/1-T-1.1/prompts/test_prompt.md",
+        }])),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    current_file = run_dir / "execution" / "current_task.json"
+    current_file.parent.mkdir(parents=True, exist_ok=True)
+    current_file.write_text(json.dumps({
+        "index": 1,
+        "task_id": "T-1.1",
+        "task_folder": str(run_dir / "execution" / "1-T-1.1"),
+        "child_state": "design",
+        "attempt": 2,
+        "latest_test_failure_file": str(failure_file),
+    }), encoding="utf-8")
+
+    state = restore_state_from_run(config, run_dir, "finish", "task_design", None, {})
+
+    assert state.latest_test_failure_file == failure_file
+
+
+def test_restore_task_design_rejects_missing_execution_materials(tmp_path):
+    config = SimpleNamespace(
+        project_root=tmp_path / "project",
+        llm=SimpleNamespace(model_dump=lambda: {"provider": "test"}),
+        max_task_attempts=3,
+    )
+    run_dir = tmp_path / "runs" / "run-1"
+    context_file = run_dir / "context" / "context.md"
+    design_file = run_dir / "design" / "system_high_level_design.md"
+    context_file.parent.mkdir(parents=True)
+    design_file.parent.mkdir(parents=True)
+    context_file.write_text("context", encoding="utf-8")
+    design_file.write_text("design", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="all_tasks.json"):
+        restore_state_from_run(config, run_dir, "finish", "task_design", None, {})
+
+
+def test_handle_human_intervention_retries_non_context_state(tmp_path, monkeypatch):
+    state = AgentState(project_root=tmp_path, run_dir=tmp_path / "run-1", goal="finish")
+    replacement = state.model_dump(mode="json")
+    replacement["current_state"] = "design"
+    values = iter([json.dumps(replacement), "EOF"])
+    monkeypatch.setattr("builtins.input", lambda: next(values))
+    monkeypatch.setattr("embedded_agent.cli._run_state_loop", lambda value: value)
+    exc = HumanInterventionRequired({
+        "state": "design",
+        "issue": "model failed",
+        "request": "provide replacement state",
+        "run_dir": str(state.run_dir),
+        "payload": {"state": state.model_dump(mode="json")},
+    })
+
+    result = handle_human_intervention(exc, state)
+
+    assert result["current_state"] == "design"
 
 
 def test_run_from_state_starts_at_requested_node(tmp_path, monkeypatch):
