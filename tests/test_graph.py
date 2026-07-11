@@ -13,7 +13,6 @@ def test_human_guarded_node_can_resume_with_replacement_state(tmp_path, monkeypa
         "project_root": tmp_path,
         "run_dir": tmp_path / "runs" / "run-1",
         "goal": "finish task",
-        "hardware": {},
         "llm": {},
     }
     replacement = dict(state)

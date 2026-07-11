@@ -34,7 +34,7 @@ class AcceptanceCheck(BaseModel):
 
 
 class PlanTask(BaseModel):
-    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
     title: str
     kind: TaskKind
     objective: str
@@ -62,32 +62,11 @@ class PlanTask(BaseModel):
 
 
 class PlanDocument(BaseModel):
-    tasks: list[PlanTask]
-
-    @model_validator(mode="after")
-    def validate_dependencies(self) -> "PlanDocument":
-        ids = {task.id for task in self.tasks}
-        unknown: dict[str, list[str]] = {}
-        for task in self.tasks:
-            missing = [dep for dep in task.dependencies if dep not in ids]
-            if missing:
-                unknown[task.id] = missing
-        if unknown:
-            raise ValueError(f"unknown dependencies: {unknown}")
-        return self
-
-    def ready_task_ids(self, completed: set[str]) -> list[str]:
-        return [
-            task.id
-            for task in self.tasks
-            if task.id not in completed and set(task.dependencies).issubset(completed)
-        ]
-
-    def get_task(self, task_id: str) -> PlanTask:
-        for task in self.tasks:
-            if task.id == task_id:
-                return task
-        raise KeyError(task_id)
+    architecture_strategy: str = ""
+    critical_path_and_dependency: dict[str, object] = Field(default_factory=dict)
+    wbs_tasks: list[dict[str, object]] = Field(default_factory=list)
+    cross_module_interfaces_and_risks: list[str] = Field(default_factory=list)
+    tasks: list[PlanTask] = Field(default_factory=list)
 
 
 class AgentState(BaseModel):
@@ -95,14 +74,24 @@ class AgentState(BaseModel):
     run_dir: Path
     goal: str
     llm: dict[str, object] = Field(default_factory=dict)
-    hardware: dict[str, object] = Field(default_factory=dict)
+    verification_env: dict[str, object] = Field(default_factory=dict)
+    verification_env_file: Path | None = None
     current_state: str = "build_context"
     context_md: str = ""
     context_file: Path | None = None
     context_files: list[Path] = Field(default_factory=list)
+    thinkingmap_file: Path | None = None
     thinkingmap_files: list[Path] = Field(default_factory=list)
     plan_file: Path | None = None
+    design_file: Path | None = None
+    design_md: str = ""
+    design_feedback: str = ""
+    algorithm_simulation_file: Path | None = None
+    subtask_feature_design_files: list[Path] = Field(default_factory=list)
+    subtask_feature_test_file: Path | None = None
     slice_files: dict[str, Path] = Field(default_factory=dict)
+    minimum_compilable_baseline_file: Path | None = None
+    material_summary_file: Path | None = None
     completed_task_ids: set[str] = Field(default_factory=set)
     failed_task_id: str | None = None
     compact_messages: list[str] = Field(default_factory=list)

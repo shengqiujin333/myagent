@@ -64,8 +64,6 @@ goal:
 {goal}
 task_directory:
 {task_directory}
-hardware_config:
-{hardware_config}
 
 ### Work Protocol
 Use the bash tool to discover and read the materials you need. Do not assume any pre-selection has been done for you.

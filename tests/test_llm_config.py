@@ -47,3 +47,4 @@ def test_load_config_keeps_deepseek_llm_defaults():
 
     assert config.llm.provider == "deepseek"
     assert config.llm.model == "deepseek-v4-flash"
+    assert config.verification_env_file == Path("configs/verification_env.myagent.yaml")

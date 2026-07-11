@@ -1,0 +1,77 @@
+version: 1
+name: "example-verification-env"
+
+hardware:
+  serial:
+    kind: "uart-console"
+    port_selection:
+      mode: "negotiate"
+      configured_port: "auto"
+      user_may_provide_port: true
+      candidate_ports:
+        - "COM7"
+      discovery_examples:
+        powershell: "Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name"
+        python: "python -m serial.tools.list_ports"
+    default_baudrate: 115200
+    timeout_sec: 30
+    usage_examples:
+      read_log: "python host_tests/read_serial.py --port <PORT> --baud 115200 --seconds 10"
+
+  cmsis_dap:
+    kind: "debug-probe"
+    probe: "CMSIS-DAP"
+    transport: "swd"
+    openocd:
+      interface_cfg: "interface/cmsis-dap.cfg"
+      target_cfg: "target/stm32g0x.cfg"
+      examples:
+        flash: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program build/firmware.elf verify reset exit\""
+        gdb_server: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init\""
+
+software:
+  shell:
+    kind: "powershell"
+
+  build:
+    kind: "project-build-command"
+    examples:
+      build: "cmake --build build"
+
+  python:
+    kind: "host-side-test-runtime"
+    executable: "python"
+    package_install:
+      policy: "allow"
+      command_template: "python -m pip install <packages>"
+      scope: "current Python environment"
+    typical_libraries:
+      - "pyserial"
+      - "pytest"
+    examples:
+      run_pytest: "python -m pytest host_tests -q"
+  system_package_manager:
+    kind: "system-package-manager"
+    name: "Chocolatey"
+    executable: "choco"
+    package_install:
+      policy: "allow"
+      command_template: "choco install <packages> -y"
+      scope: "system-wide (requires elevated/admin privileges)"
+    typical_packages:
+      - "gcc-arm-embedded"  # ARM 交叉编译工具链 (arm-none-eabi-gcc)
+      - "openocd"           # 烧录与调试工具
+      - "cmake"             # 构建系统生成器
+      - "ninja"             # 高速构建工具
+      - "make"              # GNU Make (如果使用 Makefile)
+      - "
+  compiler:
+    kind: "host-compiler"
+    toolchain: "gcc"
+    executable: "gcc"
+    version_check: "gcc --version"
+    usage_examples:
+      compile_single: "gcc -Wall -O2 -o build/algorithm_sim src/algorithm_sim.c"
+      compile_multi: "gcc -Wall -O2 -o build/algorithm_sim src/main.c src/algorithm.c -lm"
+      compile_with_debug: "gcc -Wall -g -O0 -o build/algorithm_sim_dbg src/algorithm_sim.c"
+      run_sim: "build/algorithm_sim.exe"

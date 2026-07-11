@@ -1,0 +1,80 @@
+version: 1
+name: "myagent-local-verification-env"
+
+hardware:
+  serial:
+    kind: "uart-console"
+    purpose:
+      - "capture firmware logs"
+      - "send host-side test commands when the firmware protocol supports it"
+    port_selection:
+      mode: "negotiate"
+      configured_port: "auto"
+      user_may_provide_port: true
+      candidate_ports:
+        - "COM3"
+        - "COM7"
+      discovery_examples:
+        powershell: "Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name"
+        python: "python -m serial.tools.list_ports"
+    default_baudrate: 115200
+    timeout_sec: 30
+    usage_examples:
+      read_log: "python host_tests/read_serial.py --port <PORT> --baud 115200 --seconds 10"
+      smoke_test: "python host_tests/smoke_test.py --port <PORT> --baud 115200"
+
+  cmsis_dap:
+    kind: "debug-probe"
+    probe: "CMSIS-DAP"
+    transport: "swd"
+    purpose:
+      - "flash firmware"
+      - "reset target"
+      - "run OpenOCD GDB server for debug"
+    note: "Use OpenOCD for STM32G030F6P6. pyOCD target download is not available in this environment."
+    openocd:
+      interface_cfg: "interface/cmsis-dap.cfg"
+      target_cfg: "target/stm32g0x.cfg"
+      examples:
+        flash_axf: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program MDK-ARM/battery_re/battery_re.axf verify reset exit\""
+        reset_run: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init; reset run; shutdown\""
+        gdb_server: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init\""
+        gdb_connect: "arm-none-eabi-gdb MDK-ARM/battery_re/battery_re.axf -ex \"target extended-remote localhost:3333\""
+
+software:
+  shell:
+    kind: "powershell"
+    purpose:
+      - "run build commands"
+      - "run OpenOCD commands"
+      - "run host-side Python scripts"
+
+  mdk:
+    kind: "keil-mdk"
+    uv4_exe: "C:/Keil_v5/UV4/UV4.exe"
+    project_file: "MDK-ARM/battery_re.uvprojx"
+    log_file: "MDK-ARM/build_log.txt"
+    examples:
+      build: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -b \"MDK-ARM\\battery_re.uvprojx\" -o \"MDK-ARM\\build_log.txt\""
+      rebuild: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -r \"MDK-ARM\\battery_re.uvprojx\" -o \"MDK-ARM\\build_log.txt\""
+
+  python:
+    kind: "host-side-test-runtime"
+    executable: "python"
+    package_install:
+      policy: "allow"
+      command_template: "python -m pip install <packages>"
+      scope: "current Python environment"
+      note: "The agent may install Python libraries needed for host-side debug and HIL tests through shell."
+    purpose:
+      - "write small serial/debug helper scripts"
+      - "run host-side protocol tests"
+      - "analyze captured logs"
+    typical_libraries:
+      - "pyserial"
+      - "pytest"
+      - "numpy"
+      - "matplotlib"
+    examples:
+      run_script: "python host_tests/smoke_test.py --port <PORT> --baud 115200"
+      run_pytest: "python -m pytest host_tests -q"

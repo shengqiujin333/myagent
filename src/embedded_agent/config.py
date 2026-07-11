@@ -5,8 +5,6 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from embedded_agent.hardware import HardwareConfig
-
 
 class LLMConfig(BaseModel):
     provider: str = "deepseek"
@@ -23,7 +21,7 @@ class AgentConfig(BaseModel):
     run_root: Path = Path("runs")
     goal: str | None = None
     llm: LLMConfig = Field(default_factory=LLMConfig)
-    hardware: HardwareConfig
+    verification_env_file: Path | None = None
     entrypoint: str = "main"
     context_file_limit: int = 200
 
@@ -31,6 +29,23 @@ class AgentConfig(BaseModel):
 def load_config(path: Path) -> AgentConfig:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     data.setdefault("llm", {})
-    data.setdefault("hardware", {})
-    data["hardware"].setdefault("project_root", data["project_root"])
     return AgentConfig.model_validate(data)
+
+
+def resolve_config_reference(config_path: Path, reference: Path) -> Path:
+    if reference.is_absolute():
+        return reference
+    cwd_path = Path.cwd() / reference
+    if cwd_path.exists():
+        return cwd_path
+    return config_path.parent / reference
+
+
+def load_verification_env(config: AgentConfig, config_path: Path) -> tuple[Path | None, dict[str, object]]:
+    if not config.verification_env_file:
+        return None, {}
+    env_path = resolve_config_reference(config_path, config.verification_env_file)
+    data = yaml.safe_load(env_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"verification env file must contain a YAML object: {env_path}")
+    return env_path, data
