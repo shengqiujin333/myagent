@@ -23,11 +23,19 @@ hardware:
     probe: "CMSIS-DAP"
     transport: "swd"
     openocd:
+      executable: "openocd"
+      cmsis_dap_backend: "hid"
       interface_cfg: "interface/cmsis-dap.cfg"
       target_cfg: "target/stm32g0x.cfg"
+      firmware_path: "build/firmware.elf"
+      timeout_sec: 120
       examples:
         flash: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program build/firmware.elf verify reset exit\""
         gdb_server: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init\""
+    gdb:
+      executable: "arm-none-eabi-gdb"
+      server_address: "localhost:3333"
+      timeout_sec: 120
 
 software:
   shell:
@@ -50,21 +58,37 @@ software:
       - "pytest"
     examples:
       run_pytest: "python -m pytest host_tests -q"
+
   system_package_manager:
     kind: "system-package-manager"
     name: "Chocolatey"
     executable: "choco"
     package_install:
       policy: "allow"
-      command_template: "choco install <packages> -y"
       scope: "system-wide (requires elevated/admin privileges)"
-    typical_packages:
-      - "gcc-arm-embedded"  # ARM 交叉编译工具链 (arm-none-eabi-gcc)
-      - "openocd"           # 烧录与调试工具
-      - "cmake"             # 构建系统生成器
-      - "ninja"             # 高速构建工具
-      - "make"              # GNU Make (如果使用 Makefile)
-      - "
+      timeout_sec: 600
+    packages:
+      openocd:
+        package: "openocd"
+        executable: "openocd"
+        version_command: "openocd --version"
+      gcc-arm-embedded:
+        package: "gcc-arm-embedded"
+        executable: "arm-none-eabi-gdb"
+        version_command: "arm-none-eabi-gdb --version"
+      cmake:
+        package: "cmake"
+        executable: "cmake"
+        version_command: "cmake --version"
+      ninja:
+        package: "ninja"
+        executable: "ninja"
+        version_command: "ninja --version"
+      make:
+        package: "make"
+        executable: "make"
+        version_command: "make --version"
+
   compiler:
     kind: "host-compiler"
     toolchain: "gcc"

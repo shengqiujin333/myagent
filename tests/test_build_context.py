@@ -997,6 +997,70 @@ def test_algorithm_simulation_routes_to_subtask_feature_design_on_success(tmp_pa
     assert "algorithm_simulation/algorithm_simulation.md" in index_text
 
 
+def test_extract_simulation_matrix_accepts_standalone_sim_blocks_in_document_order():
+    from embedded_agent.nodes import _extract_simulation_matrix
+
+    design_md = """
+```json
+{"sim_id": "SIM-02", "module_name": "timing"}
+```
+```json
+{"sim_id": "SIM-01", "module_name": "demodulation"}
+```
+"""
+
+    status, matrix = _extract_simulation_matrix(design_md)
+
+    assert status == "success"
+    assert [item["sim_id"] for item in matrix] == ["SIM-02", "SIM-01"]
+
+
+def test_extract_simulation_matrix_prefers_wrapped_matrix_over_standalone_blocks():
+    from embedded_agent.nodes import _extract_simulation_matrix
+
+    design_md = """
+```json
+{"sim_id": "SIM-STANDALONE"}
+```
+```json
+{"simulation_matrix": [{"sim_id": "SIM-WRAPPED"}]}
+```
+"""
+
+    status, matrix = _extract_simulation_matrix(design_md)
+
+    assert status == "success"
+    assert matrix == [{"sim_id": "SIM-WRAPPED"}]
+
+
+@pytest.mark.parametrize(
+    "design_md",
+    [
+        '```json\n{"sim_id": "SIM-01"}\n```\n```json\n{"sim_id": "SIM-01"}\n```',
+        '```json\n{"sim_id": "SIM-01", broken}\n```',
+        '```json\n{"simulation_matrix": {"sim_id": "SIM-01"}}\n```',
+    ],
+)
+def test_extract_simulation_matrix_rejects_invalid_relevant_blocks(design_md):
+    from embedded_agent.nodes import _extract_simulation_matrix
+
+    status, matrix = _extract_simulation_matrix(design_md)
+
+    assert status == "format_error"
+    assert matrix is None
+
+
+def test_extract_simulation_matrix_ignores_unrelated_json_blocks():
+    from embedded_agent.nodes import _extract_simulation_matrix
+
+    design_md = '```json\n{"metadata": "keep out"}\n```\n```json\n{broken metadata}\n```'
+
+    status, matrix = _extract_simulation_matrix(design_md)
+
+    assert status == "not_found"
+    assert matrix is None
+
+
 def test_algorithm_simulation_routes_back_to_design_on_failure(tmp_path, monkeypatch):
     from embedded_agent.nodes import algorithm_simulation_node
 

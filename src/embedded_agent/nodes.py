@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import subprocess
 from pathlib import Path
 
 import yaml
 
 from embedded_agent.artifacts import append_artifact, read_artifacts_index, write_json, write_text
-from embedded_agent.agent_tools import invoke_with_agent_tools
+from embedded_agent.agent_tools import invoke_with_agent_tools, run_powershell_command
 from embedded_agent.codebase_tools import CODEBASE_MEMORY_TOOL_SCHEMAS, is_codebase_memory_tool, run_codebase_memory_tool
 from embedded_agent.config import LLMConfig
 from embedded_agent.human import request_human_intervention
@@ -73,6 +71,7 @@ def _invoke_state_artifact(
         run_dir=agent.run_dir,
         state_name=state_name,
         allow_empty_response=True,
+        verification_env=agent.verification_env,
     )
     after = _file_signature(output_path)
     if after is not None and after != before:
@@ -671,30 +670,11 @@ def _normalize_model_bash_command(command: str) -> str:
 def _run_model_bash(command: str, cwd: Path) -> str:
     command = _normalize_model_bash_command(command)
     _ensure_safe_bash_command(command)
-    environment = os.environ.copy()
-    environment["PYTHONIOENCODING"] = "utf-8"
-    environment["PYTHONUTF8"] = "1"
-    powershell_command = (
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-        "$OutputEncoding = [Console]::OutputEncoding; "
-        f"{command}"
-    )
-    completed = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", powershell_command],
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        timeout=BASH_TOOL_TIMEOUT_SEC,
+    return run_powershell_command(
+        command,
         cwd=cwd,
-        env=environment,
-    )
-    return (
-        f"exit_code={completed.returncode}\n"
-        "stdout:\n"
-        f"{completed.stdout[-BASH_TOOL_OUTPUT_CHARS:]}\n"
-        "stderr:\n"
-        f"{completed.stderr[-BASH_TOOL_OUTPUT_CHARS:]}"
+        timeout_sec=BASH_TOOL_TIMEOUT_SEC,
+        output_chars=BASH_TOOL_OUTPUT_CHARS,
     )
 
 
@@ -887,17 +867,19 @@ MAX_ALGORITHM_SIMULATION_ITERATIONS = 5
 
 
 def _extract_simulation_matrix(design_md: str) -> tuple[str, list[dict[str, object]] | None]:
-    """Extract simulation_matrix from design markdown.
+    """Extract a wrapped matrix or standalone simulation objects from markdown.
 
     Returns:
         ("success", matrix) - simulation_matrix found and valid
-        ("not_found", None) - no JSON block mentioning simulation_matrix found
-        ("format_error", None) - block mentions simulation_matrix but JSON is malformed
+        ("not_found", None) - no relevant JSON block found
+        ("format_error", None) - relevant JSON is malformed or has invalid IDs
     """
     json_blocks = re.findall(r"```json\s*(.*?)\s*```", design_md, re.DOTALL)
-    for block in json_blocks:
-        if "simulation_matrix" not in block:
-            continue
+
+    wrapper_blocks = [
+        block for block in json_blocks if re.search(r'["\']?simulation_matrix["\']?\s*:', block)
+    ]
+    for block in wrapper_blocks:
         candidates = [block, "{" + block + "}"]
         for candidate in candidates:
             try:
@@ -906,10 +888,43 @@ def _extract_simulation_matrix(design_md: str) -> tuple[str, list[dict[str, obje
                 continue
             if isinstance(data, dict) and "simulation_matrix" in data:
                 matrix = data["simulation_matrix"]
-                if isinstance(matrix, list):
+                if not isinstance(matrix, list):
+                    return ("format_error", None)
+                if _simulation_items_have_valid_ids(matrix):
                     return ("success", matrix)
+                return ("format_error", None)
+    if wrapper_blocks:
         return ("format_error", None)
-    return ("not_found", None)
+
+    standalone: list[dict[str, object]] = []
+    for block in json_blocks:
+        try:
+            data = json.loads(block)
+        except json.JSONDecodeError:
+            if re.search(r'["\']?sim_id["\']?\s*:', block):
+                return ("format_error", None)
+            continue
+        if not isinstance(data, dict) or "sim_id" not in data:
+            continue
+        standalone.append(data)
+
+    if not standalone:
+        return ("not_found", None)
+    if not _simulation_items_have_valid_ids(standalone):
+        return ("format_error", None)
+    return ("success", standalone)
+
+
+def _simulation_items_have_valid_ids(items: list[object]) -> bool:
+    sim_ids: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return False
+        sim_id = str(item.get("sim_id") or "").strip()
+        if not sim_id:
+            return False
+        sim_ids.append(sim_id)
+    return len(sim_ids) == len(set(sim_ids))
 
 
 def _parse_feedback_sections(output: str) -> tuple[str, list[dict[str, object]] | None]:
@@ -1169,6 +1184,7 @@ def minimum_compilable_baseline_node(state: dict) -> dict:
         run_dir=agent.run_dir,
         state_name="minimum_compilable_baseline",
         allow_empty_response=True,
+        verification_env=agent.verification_env,
     )
     tool_log = agent.run_dir / "minimum_compilable_baseline" / "tool_calls.jsonl"
     if not tool_log.exists() or not tool_log.read_text(encoding="utf-8").strip():
@@ -1433,6 +1449,7 @@ def task_design_node(state: dict) -> dict:
         run_dir=agent.run_dir,
         state_name=f"execution/{_safe_task_folder(agent.current_task_index, agent.current_task_id)}/design/attempt-{attempt:03d}",
         allow_empty_response=True,
+        verification_env=agent.verification_env,
     )
     tool_log = attempt_dir / "tool_calls.jsonl"
     if not tool_log.exists() or not tool_log.read_text(encoding="utf-8").strip():
@@ -1462,6 +1479,7 @@ def task_test_node(state: dict) -> dict:
         run_dir=agent.run_dir,
         state_name=f"execution/{_safe_task_folder(agent.current_task_index, agent.current_task_id)}/test/attempt-{attempt:03d}",
         allow_empty_response=True,
+        verification_env=agent.verification_env,
     )
     result_path = attempt_dir / "result.json"
     status, reason = _parse_test_status(output, result_path)

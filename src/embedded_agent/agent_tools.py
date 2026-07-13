@@ -9,9 +9,13 @@ from pathlib import Path
 from embedded_agent.codebase_tools import CODEBASE_MEMORY_TOOL_SCHEMAS
 from embedded_agent.codebase_tools import is_codebase_memory_tool
 from embedded_agent.codebase_tools import run_codebase_memory_tool
+from embedded_agent.verification_tools import VERIFICATION_TOOL_SCHEMAS
+from embedded_agent.verification_tools import cleanup_verification_processes
+from embedded_agent.verification_tools import is_verification_tool
+from embedded_agent.verification_tools import run_verification_tool
 
 
-MAX_TOOL_STEPS = 80
+MAX_TOOL_STEPS = 150
 TOOL_TIMEOUT_SEC = 20
 TOOL_OUTPUT_CHARS = 12000
 
@@ -65,6 +69,7 @@ AGENT_TOOL_SCHEMAS = [
     BASH_TOOL_SCHEMA,
     READ_FILE_TOOL_SCHEMA,
     WRITE_FILE_TOOL_SCHEMA,
+    *VERIFICATION_TOOL_SCHEMAS,
     *CODEBASE_MEMORY_TOOL_SCHEMAS,
 ]
 
@@ -121,6 +126,57 @@ def _ensure_safe_bash_command(command: str) -> None:
 
 def _run_bash(command: str, project_root: Path) -> str:
     _ensure_safe_bash_command(command)
+    return run_powershell_command(
+        command,
+        cwd=project_root,
+        timeout_sec=TOOL_TIMEOUT_SEC,
+        output_chars=TOOL_OUTPUT_CHARS,
+    )
+
+
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if os.name == "nt":
+        try:
+            _terminate_pid_tree(process.pid)
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+        return
+    process.kill()
+
+
+def _terminate_pid_tree(pid: int) -> None:
+    subprocess.run(
+        ["taskkill", "/PID", str(pid), "/T", "/F"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+        check=False,
+    )
+
+
+def _process_ids_by_image(image_name: str) -> set[int]:
+    if os.name != "nt":
+        return set()
+    completed = subprocess.run(
+        ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+        check=False,
+    )
+    output = completed.stdout.decode(errors="ignore")
+    return {int(pid) for pid in re.findall(rf'"{re.escape(image_name)}","(\d+)"', output, re.IGNORECASE)}
+
+
+def run_powershell_command(
+    command: str,
+    *,
+    cwd: Path,
+    timeout_sec: float,
+    output_chars: int,
+) -> str:
+    watches_uv4 = "uv4.exe" in command.lower()
+    uv4_before = _process_ids_by_image("UV4.exe") if watches_uv4 else set()
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "1"
@@ -129,19 +185,49 @@ def _run_bash(command: str, project_root: Path) -> str:
         "$OutputEncoding = [Console]::OutputEncoding; "
         f"{command}"
     )
-    completed = subprocess.run(
+    process = subprocess.Popen(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", powershell_command],
         text=True,
         encoding="utf-8",
         errors="replace",
-        capture_output=True,
-        timeout=TOOL_TIMEOUT_SEC,
-        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
         env=environment,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_sec)
+        returncode = process.returncode
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            stdout, stderr = "", ""
+        returncode = 124
+        stderr = f"{stderr}\ncommand timed out after {timeout_sec:g} seconds; process tree terminated"
+    if watches_uv4:
+        lingering_uv4 = sorted(_process_ids_by_image("UV4.exe") - uv4_before)
+        for pid in lingering_uv4:
+            _terminate_pid_tree(pid)
+        if lingering_uv4:
+            returncode = 124
+            stderr = (
+                f"{stderr}\nUV4 command left a running UV4.exe process; "
+                f"terminated new process IDs {lingering_uv4}"
+            )
     return (
-        f"exit_code={completed.returncode}\nstdout:\n{completed.stdout[-TOOL_OUTPUT_CHARS:]}"
-        f"\nstderr:\n{completed.stderr[-TOOL_OUTPUT_CHARS:]}"
+        f"exit_code={returncode}\nstdout:\n{stdout[-output_chars:]}"
+        f"\nstderr:\n{stderr[-output_chars:]}"
     )
 
 
@@ -168,14 +254,38 @@ def _run_file_tool(name: str, args: dict[str, object], project_root: Path, run_d
     return f"wrote {path} ({len(content)} characters)"
 
 
-def _run_tool(name: str, args: dict[str, object], project_root: Path, run_dir: Path) -> str:
+def _run_tool(
+    name: str,
+    args: dict[str, object],
+    project_root: Path,
+    run_dir: Path,
+    verification_env: dict[str, object] | None = None,
+) -> str:
     if name == "bash":
         return _run_bash(str(args.get("command") or ""), project_root)
     if name in {"read_file", "write_file"}:
         return _run_file_tool(name, args, project_root, run_dir)
+    if is_verification_tool(name):
+        return run_verification_tool(
+            name,
+            args,
+            verification_env=verification_env or {},
+            project_root=project_root,
+            run_dir=run_dir,
+            command_runner=run_powershell_command,
+        )
     if is_codebase_memory_tool(name):
         return run_codebase_memory_tool(name, args)
     return f"Unknown tool: {name}"
+
+
+def _tool_result_failed(name: str, content: str) -> bool:
+    if content.startswith("Tool error:") or content.startswith("Unknown tool:"):
+        return True
+    if name == "bash" or is_verification_tool(name):
+        match = re.search(r"^exit_code=(-?\d+)", content)
+        return match is None or int(match.group(1)) != 0
+    return False
 
 
 def invoke_with_agent_tools(
@@ -186,6 +296,7 @@ def invoke_with_agent_tools(
     run_dir: Path,
     state_name: str,
     allow_empty_response: bool = False,
+    verification_env: dict[str, object] | None = None,
 ) -> str:
     if not hasattr(llm, "bind_tools"):
         output = getattr(llm.invoke(prompt), "content", None)
@@ -197,10 +308,24 @@ def invoke_with_agent_tools(
     tool_llm = llm.bind_tools(AGENT_TOOL_SCHEMAS)
     messages: list[object] = [{"role": "user", "content": prompt}]
     log_path = run_dir / state_name / "tool_calls.jsonl"
+    failed_call_counts: dict[str, int] = {}
     for _ in range(MAX_TOOL_STEPS):
-        response = tool_llm.invoke(messages)
+        try:
+            response = tool_llm.invoke(messages)
+        except BaseException:
+            cleanup_verification_processes(
+                project_root=project_root,
+                run_dir=run_dir,
+                command_runner=run_powershell_command,
+            )
+            raise
         calls = _extract_tool_calls(response)
         if not calls:
+            cleanup_verification_processes(
+                project_root=project_root,
+                run_dir=run_dir,
+                command_runner=run_powershell_command,
+            )
             output = getattr(response, "content", response)
             text = str(output).strip()
             if not text and not allow_empty_response:
@@ -210,10 +335,22 @@ def invoke_with_agent_tools(
         for index, call in enumerate(calls):
             name = _tool_name(call)
             args = _tool_args(call)
-            try:
-                content = _run_tool(name, args, project_root, run_dir)
-            except Exception as exc:
-                content = f"Tool error: {exc}"
+            call_key = json.dumps({"name": name, "args": args}, ensure_ascii=False, sort_keys=True)
+            if failed_call_counts.get(call_key, 0) >= 2:
+                content = "Tool error: identical failing tool call blocked after 2 attempts; change the command or approach"
+            else:
+                try:
+                    content = _run_tool(name, args, project_root, run_dir, verification_env)
+                except Exception as exc:
+                    content = f"Tool error: {exc}"
+            if _tool_result_failed(name, content):
+                failed_call_counts[call_key] = failed_call_counts.get(call_key, 0) + 1
+                content = (
+                    f"TOOL_STATUS: ERROR\n{content}\n"
+                    "Do not report success from this result. Diagnose the failure and use a corrected command or approach."
+                )
+            else:
+                failed_call_counts.pop(call_key, None)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(
@@ -224,4 +361,9 @@ def invoke_with_agent_tools(
                     + "\n"
                 )
             messages.append({"role": "tool", "tool_call_id": _tool_id(call, index), "content": content})
+    cleanup_verification_processes(
+        project_root=project_root,
+        run_dir=run_dir,
+        command_runner=run_powershell_command,
+    )
     raise RuntimeError(f"{state_name} LLM exceeded shared tool step limit ({MAX_TOOL_STEPS} model turns)")

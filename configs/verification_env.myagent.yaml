@@ -13,7 +13,6 @@ hardware:
       user_may_provide_port: true
       candidate_ports:
         - "COM3"
-        - "COM7"
       discovery_examples:
         powershell: "Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name"
         python: "python -m serial.tools.list_ports"
@@ -33,13 +32,22 @@ hardware:
       - "run OpenOCD GDB server for debug"
     note: "Use OpenOCD for STM32G030F6P6. pyOCD target download is not available in this environment."
     openocd:
+      executable: "E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe"
+      cmsis_dap_backend: "hid"
       interface_cfg: "interface/cmsis-dap.cfg"
       target_cfg: "target/stm32g0x.cfg"
+      firmware_path: "battery_re/MDK-ARM/battery_re/battery_re.axf"
+      timeout_sec: 120
       examples:
-        flash_axf: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program MDK-ARM/battery_re/battery_re.axf verify reset exit\""
+        flash_axf: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program battery_re/MDK-ARM/battery_re/battery_re.axf verify reset exit\""
         reset_run: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init; reset run; shutdown\""
         gdb_server: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"init\""
-        gdb_connect: "arm-none-eabi-gdb MDK-ARM/battery_re/battery_re.axf -ex \"target extended-remote localhost:3333\""
+    gdb:
+      executable: "arm-none-eabi-gdb"
+      server_address: "localhost:3333"
+      timeout_sec: 120
+      examples:
+        connect: "arm-none-eabi-gdb battery_re/MDK-ARM/battery_re/battery_re.axf -ex \"target extended-remote localhost:3333\""
 
 software:
   shell:
@@ -52,11 +60,12 @@ software:
   mdk:
     kind: "keil-mdk"
     uv4_exe: "C:/Keil_v5/UV4/UV4.exe"
-    project_file: "MDK-ARM/battery_re.uvprojx"
-    log_file: "MDK-ARM/build_log.txt"
+    project_file: "battery_re/MDK-ARM/battery_re.uvprojx"
+    log_file: "battery_re/MDK-ARM/build_log.txt"
+    timeout_sec: 300
     examples:
-      build: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -b \"MDK-ARM\\battery_re.uvprojx\" -o \"MDK-ARM\\build_log.txt\""
-      rebuild: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -r \"MDK-ARM\\battery_re.uvprojx\" -o \"MDK-ARM\\build_log.txt\""
+      build: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -b \"battery_re\\MDK-ARM\\battery_re.uvprojx\" -o \"battery_re\\MDK-ARM\\build_log.txt\""
+      rebuild: "\"C:\\Keil_v5\\UV4\\UV4.exe\" -j0 -r \"battery_re\\MDK-ARM\\battery_re.uvprojx\" -o \"battery_re\\MDK-ARM\\build_log.txt\""
 
   python:
     kind: "host-side-test-runtime"
@@ -78,3 +87,33 @@ software:
     examples:
       run_script: "python host_tests/smoke_test.py --port <PORT> --baud 115200"
       run_pytest: "python -m pytest host_tests -q"
+
+  system_package_manager:
+    kind: "system-package-manager"
+    name: "Chocolatey"
+    executable: "choco"
+    package_install:
+      policy: "allow"
+      timeout_sec: 600
+      scope: "system-wide; embedded-agent must run from an elevated PowerShell"
+    packages:
+      openocd:
+        package: "openocd"
+        executable: "E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe"
+        version_command: "& 'E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe' --version"
+      gcc-arm-embedded:
+        package: "gcc-arm-embedded"
+        executable: "arm-none-eabi-gdb"
+        version_command: "arm-none-eabi-gdb --version"
+      cmake:
+        package: "cmake"
+        executable: "cmake"
+        version_command: "cmake --version"
+      ninja:
+        package: "ninja"
+        executable: "ninja"
+        version_command: "ninja --version"
+      make:
+        package: "make"
+        executable: "make"
+        version_command: "make --version"
