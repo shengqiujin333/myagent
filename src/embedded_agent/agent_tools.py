@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -120,14 +121,23 @@ def _ensure_safe_bash_command(command: str) -> None:
 
 def _run_bash(command: str, project_root: Path) -> str:
     _ensure_safe_bash_command(command)
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    powershell_command = (
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+        "$OutputEncoding = [Console]::OutputEncoding; "
+        f"{command}"
+    )
     completed = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", powershell_command],
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
         timeout=TOOL_TIMEOUT_SEC,
         cwd=project_root,
+        env=environment,
     )
     return (
         f"exit_code={completed.returncode}\nstdout:\n{completed.stdout[-TOOL_OUTPUT_CHARS:]}"

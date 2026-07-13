@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from embedded_agent.agent_tools import AGENT_TOOL_SCHEMAS
+from embedded_agent.agent_tools import _run_bash
 from embedded_agent.agent_tools import invoke_with_agent_tools
 
 
@@ -60,3 +61,10 @@ def test_agent_registers_shared_tools_and_runs_them_for_any_state(tmp_path):
     log = tmp_path / "run-1" / "design" / "tool_calls.jsonl"
     assert log.exists()
     assert "read_file" in log.read_text(encoding="utf-8")
+
+
+def test_bash_preserves_utf8_output_from_python(tmp_path):
+    output = _run_bash('python -c "print(\'电池内阻测试\')"', tmp_path)
+
+    assert "电池内阻测试" in output
+    assert "�" not in output

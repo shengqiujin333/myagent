@@ -70,6 +70,38 @@ class ToolCallingLLM:
         return FinalResponse()
 
 
+class FileArtifactLLM:
+    def __init__(self, output_path: Path, content: str, final_summary: str):
+        self.output_path = output_path
+        self.content = content
+        self.final_summary = final_summary
+        self.calls = 0
+        self.prompt = ""
+
+    def bind_tools(self, _tools):
+        return self
+
+    def invoke(self, messages):
+        self.calls += 1
+        self.prompt = messages[0]["content"]
+        if self.calls == 1:
+            class ToolResponse:
+                content = ""
+
+            ToolResponse.tool_calls = [{
+                "id": "write-artifact",
+                "name": "write_file",
+                "args": {"path": str(self.output_path), "content": self.content},
+            }]
+            return ToolResponse()
+
+        class FinalResponse:
+            pass
+
+        FinalResponse.content = self.final_summary
+        return FinalResponse()
+
+
 class FakeThinkingMapLLM:
     def __init__(self):
         self.prompt = ""
@@ -411,6 +443,54 @@ def test_build_context_executes_model_requested_bash_tool(tmp_path, monkeypatch)
     assert Path(result["context_file"]).exists()
     second_messages = tool_llm.messages[-1]
     assert any(isinstance(message, dict) and "tool-output" in message.get("content", "") for message in second_messages)
+
+
+def test_build_context_prefers_model_written_run_artifact_over_final_summary(tmp_path, monkeypatch):
+    target = tmp_path / "tasknew"
+    target.mkdir()
+    run_dir = tmp_path / "runs" / "run-1"
+    artifact_path = run_dir / "context" / "context.md"
+    llm = FileArtifactLLM(artifact_path, "# Build Context\n\n真正的项目资料", "context.md has been written successfully")
+    monkeypatch.setattr("embedded_agent.nodes.create_llm", lambda _config: llm)
+    state = AgentState(project_root=target, run_dir=run_dir, goal="finish", llm=_llm_config())
+
+    result = build_context_node(state.model_dump())
+
+    assert Path(result["context_file"]).read_text(encoding="utf-8") == "# Build Context\n\n真正的项目资料"
+    assert str(artifact_path) in llm.prompt
+    assert not (target / "context.md").exists()
+
+
+def test_subtask_design_prefers_model_written_json_over_final_summary(tmp_path, monkeypatch):
+    from embedded_agent.nodes import subtask_feature_design_node
+
+    run_dir = tmp_path / "run-1"
+    context_path = run_dir / "context" / "context.md"
+    thinkingmap_path = run_dir / "thinkingmap" / "thinkingmap.md"
+    design_path = run_dir / "design" / "system_high_level_design.md"
+    output_path = run_dir / "subtask_feature_design" / "all_subtasks.json"
+    for path, content in ((context_path, "context"), (thinkingmap_path, "thinking"), (design_path, "design")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    artifact = json.dumps({"subtasks": [{"task_id": "T-1.1", "execution_order": 1, "dependencies": []}]})
+    llm = FileArtifactLLM(output_path, artifact, "subtask_design_output.json has been generated")
+    monkeypatch.setattr("embedded_agent.nodes.create_llm", lambda _config: llm)
+    state = AgentState(
+        project_root=tmp_path,
+        run_dir=run_dir,
+        goal="design tasks",
+        context_file=context_path,
+        context_md="context",
+        thinkingmap_file=thinkingmap_path,
+        design_file=design_path,
+        design_md="design",
+    )
+
+    result = subtask_feature_design_node(state.model_dump())
+
+    assert json.loads(output_path.read_text(encoding="utf-8"))["subtasks"][0]["task_id"] == "T-1.1"
+    assert len(result["subtask_feature_design_files"]) == 1
+    assert str(output_path) in llm.prompt
 
 
 @pytest.mark.parametrize(

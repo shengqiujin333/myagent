@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -41,6 +42,45 @@ BASH_TOOL_SCHEMA = {
 
 def _load_prompt_template(name: str) -> str:
     return (PROMPT_DIR / name).read_text(encoding="utf-8")
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _artifact_delivery_contract(prompt: str, output_path: Path) -> str:
+    delivery = _load_prompt_template("artifact_delivery.md").replace("{{OUTPUT_PATH}}", str(output_path))
+    return f"{prompt.rstrip()}\n\n---\n\n{delivery.strip()}\n"
+
+
+def _invoke_state_artifact(
+    llm: object,
+    prompt: str,
+    *,
+    agent: AgentState,
+    state_name: str,
+    output_path: Path,
+) -> str:
+    before = _file_signature(output_path)
+    output = invoke_with_agent_tools(
+        llm,
+        _artifact_delivery_contract(prompt, output_path),
+        project_root=agent.project_root,
+        run_dir=agent.run_dir,
+        state_name=state_name,
+        allow_empty_response=True,
+    )
+    after = _file_signature(output_path)
+    if after is not None and after != before:
+        artifact = output_path.read_text(encoding="utf-8").strip()
+        if artifact:
+            return artifact
+    if output.strip():
+        return output.strip()
+    raise RuntimeError(f"{state_name} produced neither a written artifact nor a final response")
 
 
 def _append_jsonl(path: Path, record: dict[str, object]) -> None:
@@ -289,12 +329,13 @@ def _invoke_json_state(
 ) -> tuple[Path, str]:
     llm = create_llm(LLMConfig.model_validate(agent.llm))
     base = agent.run_dir / base_dirname
-    output = invoke_with_agent_tools(
+    output_path = base / output_filename
+    output = _invoke_state_artifact(
         llm,
         prompt,
-        project_root=agent.project_root,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name=state_name,
+        output_path=output_path,
     )
     try:
         data = _parse_json_object(output)
@@ -302,7 +343,7 @@ def _invoke_json_state(
         write_text(base / "latest_output.md", output)
         write_text(base / "latest_failure.md", f"{state_name} failed before {output_filename} was produced:\n{exc}\n")
         raise
-    json_path = write_json(base / output_filename, data)
+    json_path = write_json(output_path, data)
     append_artifact(agent.run_dir, json_path, description)
     return json_path, output
 
@@ -629,14 +670,23 @@ def _normalize_model_bash_command(command: str) -> str:
 def _run_model_bash(command: str, cwd: Path) -> str:
     command = _normalize_model_bash_command(command)
     _ensure_safe_bash_command(command)
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    environment["PYTHONUTF8"] = "1"
+    powershell_command = (
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+        "$OutputEncoding = [Console]::OutputEncoding; "
+        f"{command}"
+    )
     completed = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", powershell_command],
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
         timeout=BASH_TOOL_TIMEOUT_SEC,
         cwd=cwd,
+        env=environment,
     )
     return (
         f"exit_code={completed.returncode}\n"
@@ -663,12 +713,12 @@ def _tool_call_args(call: dict[str, object]) -> dict[str, object]:
 
 def _generate_context_with_llm(agent: AgentState, target_dir: Path, prompt: str, context_dir: Path) -> str:
     llm = create_llm(LLMConfig.model_validate(agent.llm))
-    return invoke_with_agent_tools(
+    return _invoke_state_artifact(
         llm,
         prompt,
-        project_root=target_dir,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name="context",
+        output_path=context_dir / "context.md",
     )
 
 
@@ -721,18 +771,19 @@ def thinkingmap_node(state: dict) -> dict:
     context_md = context_path.read_text(encoding="utf-8")
     prompt = _build_thinkingmap_prompt(context_md, agent.verification_env, agent.verification_env_file)
     llm = create_llm(LLMConfig.model_validate(agent.llm))
-    output = invoke_with_agent_tools(
+    markdown_path = agent.run_dir / "thinkingmap" / "thinkingmap.md"
+    output = _invoke_state_artifact(
         llm,
         prompt,
-        project_root=agent.project_root,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name="thinkingmap",
+        output_path=markdown_path,
     )
     try:
         thinkingmap = _parse_json_object(output)
         output_path = write_json(agent.run_dir / "thinkingmap" / "thinkingmap.json", thinkingmap)
     except (json.JSONDecodeError, ValueError):
-        output_path = write_text(agent.run_dir / "thinkingmap" / "thinkingmap.md", output)
+        output_path = write_text(markdown_path, output)
     append_artifact(agent.run_dir, output_path, "Thinking Map: 系统沉淀的专业知识、代码片段、设计模式与避坑指南")
     agent.thinkingmap_file = output_path
     agent.thinkingmap_files = [output_path]
@@ -748,12 +799,12 @@ def slice_node(state: dict) -> dict:
     prompt = _build_slice_prompt(agent)
     llm = create_llm(LLMConfig.model_validate(agent.llm))
     base = agent.run_dir / "slices"
-    output = invoke_with_agent_tools(
+    output = _invoke_state_artifact(
         llm,
         prompt,
-        project_root=agent.project_root,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name="slice",
+        output_path=base / "all_slices.json",
     )
     try:
         data = _parse_json_object(output)
@@ -809,14 +860,15 @@ def design_node(state: dict) -> dict:
     )
     llm = create_llm(LLMConfig.model_validate(agent.llm))
     base = agent.run_dir / "design"
-    output = invoke_with_agent_tools(
+    md_path = base / "system_high_level_design.md"
+    output = _invoke_state_artifact(
         llm,
         prompt,
-        project_root=agent.project_root,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name="design",
+        output_path=md_path,
     )
-    md_path = write_text(base / "system_high_level_design.md", output)
+    md_path = write_text(md_path, output)
     append_artifact(
         agent.run_dir,
         md_path,
@@ -961,12 +1013,12 @@ def algorithm_simulation_node(state: dict) -> dict:
             agent.verification_env_file,
             output_feedback,
         )
-        output = invoke_with_agent_tools(
+        output = _invoke_state_artifact(
             llm,
             prompt,
-            project_root=agent.project_root,
-            run_dir=agent.run_dir,
+            agent=agent,
             state_name="algorithm_simulation",
+            output_path=base / "algorithm_simulation.md",
         )
         md_path = write_text(base / "algorithm_simulation.md", output)
         output_status, feedbacks = _parse_feedback_sections(output)
@@ -1029,12 +1081,13 @@ def subtask_feature_design_node(state: dict) -> dict:
     prompt = _build_subtask_feature_design_prompt(agent)
     llm = create_llm(LLMConfig.model_validate(agent.llm))
     base = agent.run_dir / "subtask_feature_design"
-    output = invoke_with_agent_tools(
+    all_path = base / "all_subtasks.json"
+    output = _invoke_state_artifact(
         llm,
         prompt,
-        project_root=agent.project_root,
-        run_dir=agent.run_dir,
+        agent=agent,
         state_name="subtask_feature_design",
+        output_path=all_path,
     )
     try:
         aggregate, subtasks = _parse_aggregate_items(output, "subtasks")
@@ -1048,7 +1101,7 @@ def subtask_feature_design_node(state: dict) -> dict:
             "subtask_feature_design produced no parseable JSON subtask blocks\n",
         )
         raise RuntimeError("subtask_feature_design produced no parseable JSON subtask blocks")
-    all_path = write_json(base / "all_subtasks.json", aggregate)
+    all_path = write_json(all_path, aggregate)
     append_artifact(agent.run_dir, all_path, "Subtask Design Aggregate: 所有子任务详细设计总 JSON")
     json_paths = _split_subtask_designs(agent, subtasks)
     agent.subtask_design_all_file = all_path
@@ -1141,12 +1194,13 @@ def material_summary_node(state: dict) -> dict:
         index = int(entry.get("index") or len(summary_paths) + 1)
         task_folder = base / _safe_task_folder(index, entry.get("task_id"))
         prompt = _build_task_material_summary_prompt(agent, entry)
-        output = invoke_with_agent_tools(
+        expected_summary_path = task_folder / "material_summary.json"
+        output = _invoke_state_artifact(
             llm,
             prompt,
-            project_root=agent.project_root,
-            run_dir=agent.run_dir,
+            agent=agent,
             state_name=f"material_summary/{task_folder.name}",
+            output_path=expected_summary_path,
         )
         try:
             summary_data = _parse_json_object(output)
@@ -1165,7 +1219,7 @@ def material_summary_node(state: dict) -> dict:
             raise ValueError(
                 f"material_summary task_id mismatch: expected={expected_task_id}, actual={actual_task_id}"
             )
-        summary_path = write_json(task_folder / "material_summary.json", summary_data)
+        summary_path = write_json(expected_summary_path, summary_data)
         summary_record: dict[str, object] = dict(summary_data)
         append_artifact(agent.run_dir, summary_path, f"Material Summary: 子任务 {entry.get('task_id')} 执行材料")
         summary_paths.append(summary_path)
