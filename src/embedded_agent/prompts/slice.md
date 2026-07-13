@@ -58,7 +58,7 @@
         "role_name": "Cortex-M0+ 启动与时钟/UART 驱动专家",
         "skills": ["ARM Cortex-M0+ 启动流程", "RCC 时钟树", "UART 驱动"],
         "experience": ["完成过 STM32G0xx 底层驱动移植"],
-        "thinking_protocol": ["检索 Thinking Map 语料", "盘点前置资源", "制定兼容隔离方案"]
+        "thinking_protocol": ["所检索出的 Thinking Map 语料构成的相关专业内容如设计注意事项、设计方法、原理等和当前task有关的内容", "盘点前置资源", "制定兼容隔离方案"]
       },
       "test_expert": {
         "role_type": "VERIFIER",
