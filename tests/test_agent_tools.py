@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from embedded_agent.artifacts import new_run_dir
 from embedded_agent.agent_tools import AGENT_TOOL_SCHEMAS
 from embedded_agent.agent_tools import _run_bash
 from embedded_agent.agent_tools import invoke_with_agent_tools
@@ -61,6 +62,15 @@ def test_agent_registers_shared_tools_and_runs_them_for_any_state(tmp_path):
     log = tmp_path / "run-1" / "design" / "tool_calls.jsonl"
     assert log.exists()
     assert "read_file" in log.read_text(encoding="utf-8")
+
+
+def test_new_run_dir_returns_absolute_path_for_relative_run_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    run_dir = new_run_dir(Path("runs"))
+
+    assert run_dir.is_absolute()
+    assert run_dir.parent == (tmp_path / "runs").resolve()
 
 
 def test_bash_preserves_utf8_output_from_python(tmp_path):

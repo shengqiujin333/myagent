@@ -111,6 +111,7 @@ def restore_state_from_run(
     verification_env_file: Path | None,
     verification_env: dict[str, object],
 ) -> AgentState:
+    run_dir = run_dir.resolve()
     if not run_dir.exists() or not run_dir.is_dir():
         raise SystemExit(f"resume run directory does not exist: {run_dir}")
 

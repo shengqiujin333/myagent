@@ -64,6 +64,7 @@ def _invoke_state_artifact(
     state_name: str,
     output_path: Path,
 ) -> str:
+    output_path = output_path.resolve()
     before = _file_signature(output_path)
     output = invoke_with_agent_tools(
         llm,

@@ -8,7 +8,7 @@ from typing import Any
 
 def new_run_dir(run_root: Path) -> Path:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = run_root / run_id
+    run_dir = (run_root / run_id).resolve()
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
 

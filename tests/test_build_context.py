@@ -461,6 +461,25 @@ def test_build_context_prefers_model_written_run_artifact_over_final_summary(tmp
     assert not (target / "context.md").exists()
 
 
+def test_build_context_gives_model_absolute_artifact_path_for_relative_run_dir(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    target = tmp_path / "tasknew"
+    workspace.mkdir()
+    target.mkdir()
+    monkeypatch.chdir(workspace)
+    relative_run_dir = Path("runs") / "run-1"
+    expected_artifact = (workspace / relative_run_dir / "context" / "context.md").resolve()
+    llm = FileArtifactLLM(expected_artifact, "# Build Context\n\nactual", "done")
+    monkeypatch.setattr("embedded_agent.nodes.create_llm", lambda _config: llm)
+    state = AgentState(project_root=target, run_dir=relative_run_dir, goal="finish", llm=_llm_config())
+
+    result = build_context_node(state.model_dump())
+
+    assert str(expected_artifact) in llm.prompt
+    assert Path(result["context_file"]).resolve() == expected_artifact
+    assert not (target / "runs").exists()
+
+
 def test_subtask_design_prefers_model_written_json_over_final_summary(tmp_path, monkeypatch):
     from embedded_agent.nodes import subtask_feature_design_node
 
