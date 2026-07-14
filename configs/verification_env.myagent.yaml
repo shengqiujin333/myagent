@@ -12,7 +12,7 @@ hardware:
       configured_port: "auto"
       user_may_provide_port: true
       candidate_ports:
-        - "COM3"
+        - "COM25"
       discovery_examples:
         powershell: "Get-CimInstance Win32_SerialPort | Select-Object DeviceID,Name"
         python: "python -m serial.tools.list_ports"
@@ -32,11 +32,11 @@ hardware:
       - "run OpenOCD GDB server for debug"
     note: "Use OpenOCD for STM32G030F6P6. pyOCD target download is not available in this environment."
     openocd:
-      executable: "E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe"
+      executable: "D:/software/openocd/xpack/xpack/bin/openocd.exe"
       cmsis_dap_backend: "hid"
       interface_cfg: "interface/cmsis-dap.cfg"
       target_cfg: "target/stm32g0x.cfg"
-      firmware_path: "battery_re/MDK-ARM/battery_re/battery_re.axf"
+      firmware_path: "battery_re/MDK-ARM/battery_re.axf"
       timeout_sec: 120
       examples:
         flash_axf: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program battery_re/MDK-ARM/battery_re/battery_re.axf verify reset exit\""
@@ -99,8 +99,8 @@ software:
     packages:
       openocd:
         package: "openocd"
-        executable: "E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe"
-        version_command: "& 'E:/learn/xpack-openocd-0.12.0-7/bin/openocd.exe' --version"
+        executable: "D:/software/openocd/xpack/xpack/bin/openocd.exe"
+        version_command: "& 'D:/software/openocd/xpack/xpack/bin/openocd.exe' --version"
       gcc-arm-embedded:
         package: "gcc-arm-embedded"
         executable: "arm-none-eabi-gdb"

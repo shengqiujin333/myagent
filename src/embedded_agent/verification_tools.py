@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable
@@ -377,18 +378,29 @@ def _openocd_action(
     stderr_path = server_dir / "openocd.stderr.log"
     if name == "openocd_gdb_server":
         startup_timeout = float(args.get("startup_timeout_sec") or 3)
-        startup_milliseconds = max(1, int(startup_timeout * 1000))
-        argument_list = ",".join(_ps_quote(item) for item in base_args)
-        command = (
-            f"$p = Start-Process -FilePath {_ps_quote(executable)} -ArgumentList @({argument_list}) "
-            f"-RedirectStandardOutput {_ps_quote(stdout_path)} -RedirectStandardError {_ps_quote(stderr_path)} "
-            "-WindowStyle Hidden -PassThru; "
-            f"Set-Content -LiteralPath {_ps_quote(pid_path)} -Value $p.Id; "
-            f"Start-Sleep -Milliseconds {startup_milliseconds}; "
-            "if ($p.HasExited) { Write-Error 'OpenOCD exited during startup'; exit $p.ExitCode }; "
-            "Write-Output ('openocd_pid=' + $p.Id)"
-        )
-        return _run(runner, command, cwd=project_root, timeout_sec=startup_timeout + 10)
+        stdout_handle = stdout_path.open("w", encoding="utf-8")
+        stderr_handle = stderr_path.open("w", encoding="utf-8")
+        try:
+            process = subprocess.Popen(
+                [str(executable), *(str(item) for item in base_args)],
+                cwd=project_root,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        finally:
+            stdout_handle.close()
+            stderr_handle.close()
+        pid_path.write_text(str(process.pid), encoding="utf-8")
+        time.sleep(startup_timeout)
+        if process.poll() is not None:
+            return (
+                f"exit_code={process.returncode or 1}\nstdout:\n"
+                f"{stdout_path.read_text(encoding='utf-8', errors='replace')[-TOOL_OUTPUT_CHARS:]}\n"
+                f"stderr:\n{stderr_path.read_text(encoding='utf-8', errors='replace')[-TOOL_OUTPUT_CHARS:]}"
+            )
+        return f"exit_code=0\nstdout:\nopenocd_pid={process.pid}\nstderr:\n"
     if name == "openocd_stop":
         if not pid_path.exists():
             return "exit_code=0\nstdout:\nno OpenOCD server recorded for this run\nstderr:\n"

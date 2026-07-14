@@ -1,4 +1,4 @@
-project_root: "C:/Users/123/Desktop/neizu/tasknew"
+project_root: "D:/mylearn/tasknew"
 run_root: "runs"
 entrypoint: "main"
 context_file_limit: 200

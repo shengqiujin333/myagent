@@ -154,8 +154,22 @@ def test_openocd_flash_builds_configured_probe_command(tmp_path, verification_en
     assert f'program "{firmware}" verify reset exit' in command
 
 
-def test_openocd_reset_and_gdb_server_use_noninteractive_commands(tmp_path, verification_env):
+def test_openocd_reset_and_gdb_server_use_noninteractive_commands(tmp_path, verification_env, monkeypatch):
     runner = RecordingRunner()
+    popen_calls = []
+
+    class FakeOpenOCDProcess:
+        pid = 12345
+        returncode = None
+
+        def poll(self):
+            return None
+
+    def fake_popen(args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeOpenOCDProcess()
+
+    monkeypatch.setattr(verification_tools.subprocess, "Popen", fake_popen)
 
     verification_tools.run_verification_tool(
         "openocd_reset",
@@ -175,12 +189,21 @@ def test_openocd_reset_and_gdb_server_use_noninteractive_commands(tmp_path, veri
     )
 
     assert "init; reset run; shutdown" in runner.calls[0][0]
-    server_command = runner.calls[1][0]
-    assert "Start-Process" in server_command
-    assert "-WindowStyle Hidden" in server_command
-    assert "Start-Sleep -Milliseconds 100" in server_command
-    assert "openocd.pid" in server_command
-    assert "openocd.stdout.log" in server_command
+    assert len(runner.calls) == 1
+    args, kwargs = popen_calls[0]
+    assert args == [
+        "openocd",
+        "-f",
+        "interface/cmsis-dap.cfg",
+        "-c",
+        "cmsis-dap backend hid",
+        "-f",
+        "target/stm32g0x.cfg",
+    ]
+    assert kwargs["cwd"] == tmp_path
+    assert kwargs["stdout"].name.endswith("openocd.stdout.log")
+    assert kwargs["stderr"].name.endswith("openocd.stderr.log")
+    assert (tmp_path / "run" / "verification_tools" / "openocd.pid").read_text(encoding="utf-8") == "12345"
 
 
 def test_gdb_batch_uses_configured_firmware_and_remote_target(tmp_path, verification_env):

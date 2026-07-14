@@ -1593,6 +1593,26 @@ def test_minimum_compilable_baseline_uses_tools_without_json_output(tmp_path, mo
     assert (tmp_path / "run-1" / "minimum_compilable_baseline" / "tool_calls.jsonl").exists()
 
 
+def test_minimum_compilable_baseline_prompt_forbids_future_business_stubs_without_hardcoded_module_names(tmp_path):
+    state = AgentState(
+        project_root=tmp_path,
+        run_dir=tmp_path / "run-1",
+        goal="prepare baseline",
+        context_md="# Build Context\n\nFuture tasks mention adc_mgr.c, uart_drv.c, pwm_drv.c, and ringbuf.c.",
+        verification_env={"software": {"python": {"executable": "python"}}},
+    )
+
+    prompt = _build_minimum_compilable_baseline_prompt(state)
+    template = Path("src/embedded_agent/prompts/minimum_compilable_baseline.md").read_text(encoding="utf-8")
+
+    assert "Do not create future business module stubs" in prompt
+    assert "未来业务模块桩" in prompt
+    assert "main.c" in prompt
+    assert "stm32g0xx_hal_msp.c" in prompt
+    for module_name in ("adc_mgr.c", "uart_drv.c", "uart_proto.c", "pwm_drv.c", "ringbuf.c", "timer_svc.c", "crc16.c"):
+        assert module_name not in template
+
+
 def test_material_summary_packages_each_task_and_writes_total_index(tmp_path, monkeypatch):
     run_dir = tmp_path / "run-1"
     design_dir = run_dir / "subtask_feature_design"
