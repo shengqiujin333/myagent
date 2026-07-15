@@ -6,6 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from embedded_agent.artifacts import read_text_compatible
 from embedded_agent.codebase_tools import CODEBASE_MEMORY_TOOL_SCHEMAS
 from embedded_agent.codebase_tools import is_codebase_memory_tool
 from embedded_agent.codebase_tools import run_codebase_memory_tool
@@ -245,7 +246,7 @@ def _allowed_path(path: str, project_root: Path, run_dir: Path) -> Path:
 def _run_file_tool(name: str, args: dict[str, object], project_root: Path, run_dir: Path) -> str:
     path = _allowed_path(str(args.get("path") or ""), project_root, run_dir)
     if name == "read_file":
-        return path.read_text(encoding="utf-8")[-TOOL_OUTPUT_CHARS:]
+        return read_text_compatible(path)[-TOOL_OUTPUT_CHARS:]
     content = args.get("content")
     if not isinstance(content, str):
         raise ValueError("write_file requires string content")

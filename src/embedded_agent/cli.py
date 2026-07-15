@@ -248,7 +248,7 @@ def restore_state_from_run(
         current_task_folder=Path(str(current_task_data["task_folder"])) if current_task_data.get("task_folder") else None,
         current_child_state=str(current_task_data["child_state"]) if current_task_data.get("child_state") else None,
         current_attempt=int(current_task_data.get("attempt", 0)),
-        max_task_attempts=getattr(config, "max_task_attempts", 3),
+        max_task_attempts=getattr(config, "max_task_attempts", 5),
         completed_task_ids={str(item) for item in current_task_data.get("completed_task_ids", [])}
         if isinstance(current_task_data.get("completed_task_ids", []), list)
         else set(),

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from embedded_agent.artifacts import append_artifact, read_artifacts_index, write_json, write_text
+from embedded_agent.artifacts import append_artifact, read_artifacts_index, read_text_compatible, write_json, write_text
 from embedded_agent.agent_tools import invoke_with_agent_tools, run_powershell_command
 from embedded_agent.codebase_tools import CODEBASE_MEMORY_TOOL_SCHEMAS, is_codebase_memory_tool, run_codebase_memory_tool
 from embedded_agent.config import LLMConfig
@@ -1341,11 +1341,14 @@ def _build_execution_prompt(
         )
     if role == "test":
         result_path = attempt_dir / "result.json"
+        test_tool_experience = _load_prompt_template("test_tool_experience.md")
         text += (
+            "\n## Test and Tool Experience\n\n"
+            f"{test_tool_experience}\n\n"
             "\n## Test Result Contract\n\n"
-            "Use the shared tools to execute the test material. At the end, either write a JSON result to "
-            f"`{result_path}` or return one line with `TEST_STATUS: PASS` or `TEST_STATUS: FAIL`. "
-            "For FAIL, include the failure reason and evidence paths.\n"
+            "Use the shared tools to execute the test material. Always write the UTF-8 JSON result described above to "
+            f"`{result_path}`. Then return exactly one line with `TEST_STATUS: PASS` when its status is `pass`, "
+            "or `TEST_STATUS: FAIL` when its status is `fail`. Put failure reasons and evidence paths in the JSON.\n"
         )
     return text
 
@@ -1353,7 +1356,7 @@ def _build_execution_prompt(
 def _parse_test_status(output: str, result_path: Path) -> tuple[str, str]:
     if result_path.exists():
         try:
-            data = json.loads(result_path.read_text(encoding="utf-8"))
+            data = json.loads(read_text_compatible(result_path))
             status = str(data.get("status", "")).lower()
             reason = str(data.get("reason", data.get("failure_reason", "")))
             if status in {"pass", "passed", "success"}:
@@ -1489,7 +1492,7 @@ def task_test_node(state: dict) -> dict:
     result_data: dict[str, object] = {}
     if result_path.exists():
         try:
-            loaded_result = json.loads(result_path.read_text(encoding="utf-8"))
+            loaded_result = json.loads(read_text_compatible(result_path))
             if isinstance(loaded_result, dict):
                 result_data = loaded_result
         except json.JSONDecodeError:

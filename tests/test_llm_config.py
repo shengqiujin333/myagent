@@ -3,8 +3,9 @@ import types
 
 from pathlib import Path
 
-from embedded_agent.config import LLMConfig, load_config
+from embedded_agent.config import AgentConfig, LLMConfig, load_config
 from embedded_agent.llm import compact_system_prompt, create_llm
+from embedded_agent.state import AgentState
 
 
 def test_default_llm_uses_deepseek_v4_flash():
@@ -48,3 +49,13 @@ def test_load_config_keeps_deepseek_llm_defaults():
     assert config.llm.provider == "deepseek"
     assert config.llm.model == "deepseek-v4-flash"
     assert config.verification_env_file == Path("configs/verification_env.myagent.yaml")
+
+
+def test_task_attempt_limit_defaults_and_local_config_are_five(tmp_path):
+    config = AgentConfig(project_root=tmp_path)
+    state = AgentState(project_root=tmp_path, run_dir=tmp_path / "run", goal="test")
+    local_config = load_config(Path("configs/agent_config.myagent.yaml"))
+
+    assert config.max_task_attempts == 5
+    assert state.max_task_attempts == 5
+    assert local_config.max_task_attempts == 5

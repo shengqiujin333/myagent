@@ -1838,17 +1838,17 @@ def test_task_test_preserves_agent_result_json(tmp_path, monkeypatch):
     designed = task_design_node(selected)
     result_path = Path(designed["current_task_folder"]) / "test" / "attempt-001" / "result.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    result_path.write_text(json.dumps({
+    result_path.write_bytes(json.dumps({
         "status": "pass",
-        "evidence": ["serial.log"],
+        "evidence": ["串口测试通过"],
         "commands": ["pytest -q"],
-    }), encoding="utf-8")
+    }, ensure_ascii=False).encode("gb18030"))
 
     passed = task_test_node(designed)
 
     saved = json.loads(result_path.read_text(encoding="utf-8"))
     assert passed["current_state"] == "execute_tasks"
-    assert saved["evidence"] == ["serial.log"]
+    assert saved["evidence"] == ["串口测试通过"]
     assert saved["commands"] == ["pytest -q"]
     assert saved["task_id"] == "T-1.1"
     assert saved["attempt"] == 1
@@ -1884,6 +1884,14 @@ def test_execution_prompt_includes_shared_project_file_guard_for_design_and_test
         assert ".uvprojx" in prompt
         assert "backup" in prompt
         assert "restore" in prompt
+
+    assert "Test and Tool Experience" not in design_text
+    assert "Test and Tool Experience" in test_text
+    assert "CODE_FAIL" in test_text
+    assert "ENV_BLOCKED" in test_text
+    assert "serial_exchange" in test_text
+    assert "required case" in test_text
+    assert "Then return exactly one line" in test_text
 
 
 def test_task_test_stops_after_max_attempts(tmp_path, monkeypatch):

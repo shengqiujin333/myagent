@@ -19,6 +19,14 @@ def write_text(path: Path, content: str) -> Path:
     return path
 
 
+def read_text_compatible(path: Path) -> str:
+    data = path.read_bytes()
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("gb18030")
+
+
 def write_json(path: Path, data: Any) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

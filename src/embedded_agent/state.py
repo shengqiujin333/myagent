@@ -106,7 +106,7 @@ class AgentState(BaseModel):
     current_task_folder: Path | None = None
     current_child_state: str | None = None
     current_attempt: int = 0
-    max_task_attempts: int = Field(default=3, ge=1)
+    max_task_attempts: int = Field(default=5, ge=1)
     current_design_prompt_file: Path | None = None
     current_test_prompt_file: Path | None = None
     latest_test_failure_file: Path | None = None

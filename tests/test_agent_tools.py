@@ -6,6 +6,7 @@ from embedded_agent.artifacts import new_run_dir
 from embedded_agent.agent_tools import AGENT_TOOL_SCHEMAS
 from embedded_agent.agent_tools import MAX_TOOL_STEPS
 from embedded_agent.agent_tools import _run_bash
+from embedded_agent.agent_tools import _run_file_tool
 from embedded_agent.agent_tools import invoke_with_agent_tools
 from embedded_agent.agent_tools import run_powershell_command
 
@@ -126,6 +127,15 @@ def test_agent_registers_shared_tools_and_runs_them_for_any_state(tmp_path):
     log = tmp_path / "run-1" / "design" / "tool_calls.jsonl"
     assert log.exists()
     assert "read_file" in log.read_text(encoding="utf-8")
+
+
+def test_read_file_accepts_gb18030_text(tmp_path):
+    source = tmp_path / "legacy.c"
+    source.write_bytes("/* 中文注释 */\nint value = 1;\n".encode("gb18030"))
+
+    output = _run_file_tool("read_file", {"path": str(source)}, tmp_path, tmp_path / "run-1")
+
+    assert "中文注释" in output
 
 
 def test_agent_blocks_third_identical_failed_tool_call(tmp_path, monkeypatch):

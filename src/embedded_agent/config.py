@@ -24,7 +24,7 @@ class AgentConfig(BaseModel):
     verification_env_file: Path | None = None
     entrypoint: str = "main"
     context_file_limit: int = 200
-    max_task_attempts: int = Field(default=3, ge=1)
+    max_task_attempts: int = Field(default=5, ge=1)
 
 
 def load_config(path: Path) -> AgentConfig:
