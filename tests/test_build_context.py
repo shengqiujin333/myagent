@@ -10,6 +10,7 @@ from embedded_agent.nodes import _ensure_safe_bash_command
 from embedded_agent.nodes import _build_design_prompt
 from embedded_agent.nodes import _build_material_summary_prompt
 from embedded_agent.nodes import _build_minimum_compilable_baseline_prompt
+from embedded_agent.nodes import _build_execution_prompt
 from embedded_agent.nodes import _build_subtask_feature_test_prompt
 from embedded_agent.nodes import _run_model_bash
 from embedded_agent.nodes import build_context_node
@@ -1851,6 +1852,38 @@ def test_task_test_preserves_agent_result_json(tmp_path, monkeypatch):
     assert saved["commands"] == ["pytest -q"]
     assert saved["task_id"] == "T-1.1"
     assert saved["attempt"] == 1
+
+
+def test_execution_prompt_includes_shared_project_file_guard_for_design_and_test(tmp_path):
+    run_dir = tmp_path / "run-1"
+    prompt_dir = run_dir / "material_summary" / "1-T-1.1" / "prompts"
+    prompt_dir.mkdir(parents=True)
+    context_file = run_dir / "context" / "context.md"
+    context_file.parent.mkdir(parents=True)
+    context_file.write_text("context", encoding="utf-8")
+    design_prompt = prompt_dir / "design_prompt.md"
+    test_prompt = prompt_dir / "test_prompt.md"
+    design_prompt.write_text("design body", encoding="utf-8")
+    test_prompt.write_text("test body", encoding="utf-8")
+    task = {"task_id": "T-1.1", "design_prompt_file": str(design_prompt), "test_prompt_file": str(test_prompt)}
+    state = AgentState(
+        project_root=tmp_path,
+        run_dir=run_dir,
+        goal="execute",
+        llm=_llm_config(),
+        context_file=context_file,
+        context_md="context",
+        task_prompt_files={"T-1.1:design": design_prompt, "T-1.1:test": test_prompt},
+    )
+
+    design_text = _build_execution_prompt(state, task, "design", run_dir / "attempt")
+    test_text = _build_execution_prompt(state, task, "test", run_dir / "attempt")
+
+    for prompt in (design_text, test_text):
+        assert "Shared Project File Guard" in prompt
+        assert ".uvprojx" in prompt
+        assert "backup" in prompt
+        assert "restore" in prompt
 
 
 def test_task_test_stops_after_max_attempts(tmp_path, monkeypatch):

@@ -15,7 +15,7 @@ from embedded_agent.verification_tools import is_verification_tool
 from embedded_agent.verification_tools import run_verification_tool
 
 
-MAX_TOOL_STEPS = 150
+MAX_TOOL_STEPS = 300
 TOOL_TIMEOUT_SEC = 20
 TOOL_OUTPUT_CHARS = 12000
 

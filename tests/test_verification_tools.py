@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -105,13 +106,19 @@ def test_install_python_package_uses_configured_runtime(tmp_path, verification_e
     assert runner.calls[0][0] == "& 'python' '-m' 'pip' 'install' 'pyserial' 'pytest'"
 
 
-def test_mdk_build_resolves_project_and_log_paths(tmp_path, verification_env):
+def test_mdk_build_resolves_project_and_log_paths(tmp_path, verification_env, monkeypatch):
     project = tmp_path / "battery_re" / "MDK-ARM" / "battery_re.uvprojx"
     project.parent.mkdir(parents=True)
     project.write_text("project", encoding="utf-8")
     build_log = tmp_path / "battery_re" / "MDK-ARM" / "build_log.txt"
     build_log.write_text("0 Error(s), 0 Warning(s)", encoding="utf-8")
-    runner = RecordingRunner()
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(verification_tools.subprocess, "run", fake_run)
 
     output = verification_tools.run_verification_tool(
         "mdk_build",
@@ -119,15 +126,48 @@ def test_mdk_build_resolves_project_and_log_paths(tmp_path, verification_env):
         verification_env=verification_env,
         project_root=tmp_path,
         run_dir=tmp_path / "run",
-        command_runner=runner,
+        command_runner=RecordingRunner(),
     )
 
-    command = runner.calls[0][0]
-    assert "UV4.exe" in command
-    assert "'-r'" in command
-    assert str(project) in command
-    assert str(build_log) in command
+    args, kwargs = calls[0]
+    assert args == ["C:/Keil_v5/UV4/UV4.exe", "-j0", "-r", str(project), f"-o{build_log}"]
+    assert kwargs["cwd"] == tmp_path
+    assert output.startswith("exit_code=0")
     assert "0 Error(s), 0 Warning(s)" in output
+
+
+def test_mdk_build_reports_missing_log_as_failure_and_keeps_project_backup(tmp_path, verification_env, monkeypatch):
+    project = tmp_path / "battery_re" / "MDK-ARM" / "battery_re.uvprojx"
+    project.parent.mkdir(parents=True)
+    project.write_text("<Project />", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args=args, returncode=15, stdout="", stderr="")
+
+    monkeypatch.setattr(verification_tools.subprocess, "run", fake_run)
+
+    output = verification_tools.run_verification_tool(
+        "mdk_build",
+        {"action": "rebuild"},
+        verification_env=verification_env,
+        project_root=tmp_path,
+        run_dir=run_dir,
+        command_runner=RecordingRunner(),
+    )
+
+    assert output.startswith("exit_code=15")
+    assert "build log was not created" in output
+    assert "backup_path=" in output
+    backup_paths = list((run_dir / "verification_tools" / "backups").glob("battery_re.uvprojx.*.bak"))
+    assert len(backup_paths) == 1
+    assert backup_paths[0].read_text(encoding="utf-8") == "<Project />"
+    args, kwargs = calls[0]
+    assert args[:3] == ["C:/Keil_v5/UV4/UV4.exe", "-j0", "-r"]
+    assert str(project) in args
+    assert kwargs["cwd"] == tmp_path
 
 
 def test_openocd_flash_builds_configured_probe_command(tmp_path, verification_env):

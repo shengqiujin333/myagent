@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -315,6 +316,7 @@ def _mdk_build(
     args: dict[str, object],
     env: dict[str, object],
     project_root: Path,
+    run_dir: Path,
     runner: CommandRunner,
 ) -> str:
     mdk = _section(env, "software", "mdk")
@@ -325,12 +327,60 @@ def _mdk_build(
     project = _project_path(project_root, mdk.get("project_file"), must_exist=True)
     log_path = _project_path(project_root, mdk.get("log_file"))
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    command = _ps_command(mdk.get("uv4_exe"), "-j0", action_flag, project, "-o", log_path)
-    output = _run(runner, command, cwd=project_root, timeout_sec=float(mdk.get("timeout_sec") or 300))
-    if not log_path.exists():
-        return output
-    build_log = log_path.read_text(encoding="utf-8", errors="replace")[-TOOL_OUTPUT_CHARS:]
-    return f"{output}\nbuild_log_path={log_path}\nbuild_log:\n{build_log}"
+    backup_dir = run_dir / "verification_tools" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"{project.name}.{time.strftime('%Y%m%d-%H%M%S')}.bak"
+    shutil.copy2(project, backup_path)
+
+    uv4_exe = str(mdk.get("uv4_exe") or "UV4.exe")
+    command_args = [uv4_exe, "-j0", action_flag, str(project), f"-o{log_path}"]
+    timeout = float(mdk.get("timeout_sec") or 300)
+    try:
+        completed = subprocess.run(
+            command_args,
+            cwd=project_root,
+            timeout=timeout,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        returncode = int(completed.returncode)
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+    except subprocess.TimeoutExpired as exc:
+        returncode = 124
+        stdout = str(exc.stdout or "")
+        stderr = str(exc.stderr or "UV4 timed out")
+
+    log_exists = log_path.exists()
+    build_log = log_path.read_text(encoding="utf-8", errors="replace")[-TOOL_OUTPUT_CHARS:] if log_exists else ""
+    failure_reasons: list[str] = []
+    if returncode != 0:
+        failure_reasons.append(f"UV4 exited with code {returncode}")
+    if not log_exists:
+        failure_reasons.append("build log was not created")
+    elif re.search(r"\b[1-9]\d*\s+Error\(s\)", build_log, flags=re.IGNORECASE) or re.search(
+        r"(?<!\d)\berror\b(?!\(s\))", build_log, flags=re.IGNORECASE
+    ):
+        failure_reasons.append("build log contains errors")
+
+    effective_exit = returncode
+    if failure_reasons and effective_exit == 0:
+        effective_exit = 1
+
+    output = (
+        f"exit_code={effective_exit}\n"
+        f"stdout:\n{stdout[-TOOL_OUTPUT_CHARS:]}\n"
+        f"stderr:\n{stderr[-TOOL_OUTPUT_CHARS:]}\n"
+        f"backup_path={backup_path}\n"
+        f"build_log_path={log_path}\n"
+    )
+    if failure_reasons:
+        output += "failure_reason=" + "; ".join(failure_reasons) + "\n"
+    if log_exists:
+        output += f"build_log:\n{build_log}"
+    return output
 
 
 def _openocd_config(env: dict[str, object]) -> dict[str, object]:
@@ -459,7 +509,7 @@ def run_verification_tool(
     if name == "serial_exchange":
         return _serial_exchange(args, run_dir)
     if name == "mdk_build":
-        return _mdk_build(args, verification_env, project_root, command_runner)
+        return _mdk_build(args, verification_env, project_root, run_dir, command_runner)
     if name in {"openocd_flash", "openocd_reset", "openocd_gdb_server", "openocd_stop"}:
         return _openocd_action(name, args, verification_env, project_root, run_dir, command_runner)
     if name == "gdb_batch":

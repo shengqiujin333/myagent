@@ -1322,11 +1322,14 @@ def _build_execution_prompt(
 ) -> str:
     prompt_path = _task_prompt_path(agent, task, role)
     task_prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else "<task prompt not available>"
+    project_file_guard = _load_prompt_template("shared_project_file_guard.md")
     context = _state_text(agent.context_md, agent.context_file, "build context")
     text = (
         f"You are the {role} child task for task {task.get('task_id')}.\n\n"
         "## Build Context\n\n"
         f"```markdown\n{context}\n```\n\n"
+        "## Shared Project File Guard\n\n"
+        f"{project_file_guard}\n\n"
         f"## Rendered Task {role.title()} Prompt\n\n{task_prompt}\n"
     )
     if role == "design" and agent.latest_test_failure_file and Path(agent.latest_test_failure_file).exists():

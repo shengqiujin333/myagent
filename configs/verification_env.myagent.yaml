@@ -36,7 +36,7 @@ hardware:
       cmsis_dap_backend: "hid"
       interface_cfg: "interface/cmsis-dap.cfg"
       target_cfg: "target/stm32g0x.cfg"
-      firmware_path: "battery_re/MDK-ARM/battery_re.axf"
+      firmware_path: "battery_re/MDK-ARM/battery_re/battery_re.axf"
       timeout_sec: 120
       examples:
         flash_axf: "openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c \"program battery_re/MDK-ARM/battery_re/battery_re.axf verify reset exit\""

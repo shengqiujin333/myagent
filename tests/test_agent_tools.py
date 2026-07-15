@@ -89,8 +89,8 @@ class VerificationToolLLM:
         return Response()
 
 
-def test_shared_agent_tool_turn_limit_is_150():
-    assert MAX_TOOL_STEPS == 150
+def test_shared_agent_tool_turn_limit_is_300():
+    assert MAX_TOOL_STEPS == 300
 
 
 def test_agent_registers_shared_tools_and_runs_them_for_any_state(tmp_path):
