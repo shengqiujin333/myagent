@@ -6,7 +6,7 @@ max_task_attempts: 5
 verification_env_file: "configs/verification_env.myagent.yaml"
 llm:
   provider: "deepseek"
-  model: "deepseek-v4-flash"
+  model: "deepseek-v4-pro"
   base_url: "https://api.deepseek.com"
   api_key_env: "DEEPSEEK_API_KEY"
   temperature: 0.2

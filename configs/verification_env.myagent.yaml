@@ -2,7 +2,22 @@ version: 1
 name: "myagent-local-verification-env"
 
 hardware:
-  serial:
+  board_setup:
+    description: "Current physical assembly and connections; treat these as explicit facts."
+    devices:
+      ds18b20:
+        status: "installed"
+        connection: "soldered"
+    interfaces:
+      usart1:
+        status: "not_connected"
+      usart2:
+        status: "connected"
+        temporary_use: "printf_debug_output"
+    battery:
+        status: "not_connected"
+
+  pc_serial:
     kind: "uart-console"
     purpose:
       - "capture firmware logs"
@@ -22,7 +37,7 @@ hardware:
       read_log: "python host_tests/read_serial.py --port <PORT> --baud 115200 --seconds 10"
       smoke_test: "python host_tests/smoke_test.py --port <PORT> --baud 115200"
 
-  cmsis_dap:
+  pc_cmsis_dap:
     kind: "debug-probe"
     probe: "CMSIS-DAP"
     transport: "swd"
@@ -49,7 +64,7 @@ hardware:
       examples:
         connect: "arm-none-eabi-gdb battery_re/MDK-ARM/battery_re/battery_re.axf -ex \"target extended-remote localhost:3333\""
 
-software:
+pc_windows_software:
   shell:
     kind: "powershell"
     purpose:

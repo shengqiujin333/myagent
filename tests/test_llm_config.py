@@ -43,11 +43,13 @@ def test_compact_system_prompt_mentions_disk_first_messages():
     assert "latest failure summary" in prompt
 
 
-def test_load_config_keeps_deepseek_llm_defaults():
+def test_load_local_config_uses_deepseek_v4_pro():
     config = load_config(Path("configs/agent_config.myagent.yaml"))
 
     assert config.llm.provider == "deepseek"
-    assert config.llm.model == "deepseek-v4-flash"
+    assert config.llm.model == "deepseek-v4-pro"
+    assert config.llm.base_url == "https://api.deepseek.com"
+    assert config.llm.api_key_env == "DEEPSEEK_API_KEY"
     assert config.verification_env_file == Path("configs/verification_env.myagent.yaml")
 
 
