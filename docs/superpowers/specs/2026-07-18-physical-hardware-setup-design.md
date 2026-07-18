@@ -21,6 +21,7 @@ hardware:
         status: "not_connected"
       usart2:
         status: "connected"
+        temporary_use: "printf_debug_output"
 ```
 
 Only known, relevant facts are listed. There is no cascade field because cascade hardware is not part of the current setup description.
@@ -31,6 +32,7 @@ The verification-environment prompt must state that `hardware.physical_setup` de
 
 - `installed` and `connected` hardware may be used for hardware-in-the-loop verification.
 - `not_connected` hardware must not be used as evidence of a successful hardware test.
+- `usart2` may currently be used for `printf` debug output; this is a temporary verification use, not a new permanent business-interface requirement.
 - Missing entries remain unknown; agents must not invent their presence or absence.
 - The setup describes test availability. It does not silently add business requirements or future modules.
 
@@ -52,5 +54,5 @@ Change the shared `MAX_TOOL_STEPS` constant from 300 to 600. Preserve the existi
 
 - No new hardware discovery mechanism.
 - No cascade configuration.
-- No change to UART pin assignments, baud rates, or firmware business logic.
+- No change to UART pin assignments, baud rates, or firmware business logic. The configured `usart2` temporary use only informs debug and test planning.
 - No automatic conversion of `not_connected` into a code or design failure.
